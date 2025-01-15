@@ -10,7 +10,7 @@ import "6.5840/mr"
 import "unicode"
 import "strings"
 import "strconv"
-
+ 
 // The map function is called once for each file of input. The first
 // argument is the name of the input file, and the second is the
 // file's complete contents. You should ignore the input file name,
