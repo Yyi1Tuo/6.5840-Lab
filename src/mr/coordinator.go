@@ -9,7 +9,7 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-
+	mu sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
