@@ -14,6 +14,11 @@ type KeyValue struct {
 	Value string
 }
 
+type WorkerState struct {
+	WorkType int // 0: map, 1: reduce
+	Filename string // 文件名
+	TaskId int // 任务id，用于生成中间文件名mr-X-Y
+}
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -34,8 +39,8 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
-
+	 CallExample()
+	
 }
 
 //
