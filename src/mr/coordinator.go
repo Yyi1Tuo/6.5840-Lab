@@ -19,7 +19,7 @@ type Coordinator struct {
 	//workers []*Worker
 	task []Task
 	files []string
-	phase int // 0:map, 1:reduce, 2:done
+	Phase int // 0:map, 1:reduce, 2:done
 	wg sync.WaitGroup
 }
 
@@ -36,7 +36,9 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-
+func (c *Coordinator) AllocateTask(args *int, reply *Task) error {
+	
+}
 //
 // start a thread that listens for RPCs from worker.go
 //

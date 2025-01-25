@@ -5,7 +5,6 @@ import "log"
 import "net/rpc"
 import "hash/fnv"
 
-
 //
 // Map functions return a slice of KeyValue.
 //
@@ -13,7 +12,6 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
-
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -24,7 +22,6 @@ func ihash(key string) int {
 	h.Write([]byte(key))
 	return int(h.Sum32() & 0x7fffffff)
 }
-
 
 //
 // main/mrworker.go calls this function.
@@ -46,7 +43,10 @@ func Worker(mapf func(string, string) []KeyValue,
 
 func GetTask() Task {
 	// 从coordinator获取任务
-    
+	args := 0
+	reply := Task{}
+	sockname := coordinatorSock()
+    call("Coordinator.AllocateTask", &args, &reply)
 	return Task{}
 }
 
@@ -68,10 +68,8 @@ func CallExample() {
 
 	// declare an argument structure.
 	args := ExampleArgs{}
-
 	// fill in the argument(s).
 	args.X = 99
-
 	// declare a reply structure.
 	reply := ExampleReply{}
 
