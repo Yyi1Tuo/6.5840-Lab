@@ -6,6 +6,7 @@ import "os"
 import "net/rpc"
 import "net/http"
 import "time"
+import "fmt"
 
 const (
 	MapPhase = 0
@@ -24,9 +25,9 @@ type Coordinator struct {
 	//workers []*Worker
 	files []string
 	Phase int // 0:map, 1:reduce, 2:done
-	ReduceNum int//reduce任务数量
-	MapTaskChan chan *Task
-	ReduceTaskChan chan *Task
+	ReduceNum int //reduce任务数量
+	MapTaskChan chan *Task //map任务管道
+	ReduceTaskChan chan *Task //reduce任务管道
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -99,12 +100,16 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
+	
+	//
 	// 生成map任务并写入管道
-	for _, file := range files {
+	//
+	
+	for i, file := range files {
 		task := Task{
 			WorkType: MapTask,
 			Filename: file,
-			TaskId: 0,
+			TaskId: i,
 		}
 		c.MapTaskChan <- &task
 	}

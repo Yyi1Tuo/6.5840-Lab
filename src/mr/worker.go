@@ -30,18 +30,19 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-    task := GetTask(0)
-	if task.WorkType == 0 {
+    taskPtr := GetTask(0)
+	if taskPtr.WorkType == 0 {
 		DoMapTask()
 	} else {
 		DoReduceTask()
 	}
+	fmt.Println(*taskPtr)
 	// uncomment to send the Example RPC to the coordinator.
 	 //CallExample()
 	
 }
 
-func GetTask(workType int) Task {
+func GetTask(workType int) *Task {
 	// 从coordinator获取任务
 	args := AllocateTaskArgs{workType}
 	reply := AllocateTaskReply{}
