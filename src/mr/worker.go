@@ -5,7 +5,6 @@ import "log"
 import "net/rpc"
 import "hash/fnv"
 
-
 //
 // Map functions return a slice of KeyValue.
 //
@@ -14,11 +13,6 @@ type KeyValue struct {
 	Value string
 }
 
-type WorkerState struct {
-	WorkType int // 0: map, 1: reduce
-	Filename string // 文件名
-	TaskId int // 任务id，用于生成中间文件名mr-X-Y
-}
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -29,7 +23,6 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
@@ -37,11 +30,33 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-
+    task := GetTask(0)
+	if task.WorkType == 0 {
+		DoMapTask()
+	} else {
+		DoReduceTask()
+	}
 	// uncomment to send the Example RPC to the coordinator.
-	 CallExample()
+	 //CallExample()
 	
 }
+
+func GetTask(workType int) Task {
+	// 从coordinator获取任务
+	args := AllocateTaskArgs{workType}
+	reply := AllocateTaskReply{}
+    call("Coordinator.AllocateTask", &args, &reply)
+	return reply.Task
+}
+
+func DoMapTask() {
+	// 执行任务
+}
+
+func DoReduceTask() {
+	// 执行任务
+}
+
 
 //
 // example function to show how to make an RPC call to the coordinator.
@@ -52,10 +67,8 @@ func CallExample() {
 
 	// declare an argument structure.
 	args := ExampleArgs{}
-
 	// fill in the argument(s).
 	args.X = 99
-
 	// declare a reply structure.
 	reply := ExampleReply{}
 

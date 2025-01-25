@@ -8,16 +8,24 @@ import "net/http"
 import "sync"
 import "time"
 
+type Task struct {
+	WorkType int // 0: map, 1: reduce
+	Filename string // 文件名
+	TaskId int // 任务id，用于生成中间文件名mr-X-Y
+}
+
 type Coordinator struct {
 	// Your definitions here.
 	//workers []*Worker
-	State int // 0:map, 1:reduce, 2:done
-	
+	task []Task
+	files []string
+	Phase int // 0:map, 1:reduce, 2:done
+	wg sync.WaitGroup
+	TaskChan chan *Task
 }
 
-
 // Your code here -- RPC handlers for the worker to call.
-var waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
+const waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
 //
 // an example RPC handler.
 //
@@ -28,7 +36,9 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-
+func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskReply) error {
+	return nil
+}
 //
 // start a thread that listens for RPCs from worker.go
 //
