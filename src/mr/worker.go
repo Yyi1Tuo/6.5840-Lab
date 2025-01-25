@@ -14,7 +14,7 @@ type KeyValue struct {
 	Value string
 }
 
-type WorkerState struct {
+type Task struct {
 	WorkType int // 0: map, 1: reduce
 	Filename string // 文件名
 	TaskId int // 任务id，用于生成中间文件名mr-X-Y
@@ -37,11 +37,30 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-
+    task := GetTask()
+	if task.WorkType == 0 {
+		DoMapTask()
+	} else {
+		DoReduceTask()
+	}
 	// uncomment to send the Example RPC to the coordinator.
 	 CallExample()
 	
 }
+
+func GetTask() Task {
+	// 从coordinator获取任务
+    
+}
+
+func DoMapTask() {
+	// 执行任务
+}
+
+func DoReduceTask() {
+	// 执行任务
+}
+
 
 //
 // example function to show how to make an RPC call to the coordinator.
