@@ -7,18 +7,25 @@ import "net/rpc"
 import "net/http"
 import "sync"
 import "time"
-import "worker"
+
+type Task struct {
+	WorkType int // 0: map, 1: reduce
+	Filename string // 文件名
+	TaskId int // 任务id，用于生成中间文件名mr-X-Y
+}
 
 type Coordinator struct {
 	// Your definitions here.
 	//workers []*Worker
-	State int // 0:map, 1:reduce, 2:done
-
+	task []Task
+	files []string
+	phase int // 0:map, 1:reduce, 2:done
+	wg sync.WaitGroup
 }
 
 
 // Your code here -- RPC handlers for the worker to call.
-const var waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
+const waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
 //
 // an example RPC handler.
 //
