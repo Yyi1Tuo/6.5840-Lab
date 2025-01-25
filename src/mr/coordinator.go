@@ -23,7 +23,6 @@ type Coordinator struct {
 	wg sync.WaitGroup
 }
 
-
 // Your code here -- RPC handlers for the worker to call.
 const waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
 //
@@ -36,8 +35,8 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-func (c *Coordinator) AllocateTask(args *int, reply *Task) error {
-	
+func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskReply) error {
+	return nil
 }
 //
 // start a thread that listens for RPCs from worker.go

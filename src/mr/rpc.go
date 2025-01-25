@@ -13,7 +13,14 @@ import "strconv"
 // example to show how to declare the arguments
 // and reply for an RPC.
 //
- 
+type AllocateTaskArgs struct {
+	WorkType int // 0: map, 1: reduce
+}
+
+type AllocateTaskReply struct {
+	Task Task
+}
+
 type ExampleArgs struct {
 	X int
 }
