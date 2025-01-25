@@ -5,9 +5,14 @@ import "net"
 import "os"
 import "net/rpc"
 import "net/http"
-import "sync"
 import "time"
 
+const (
+	MapPhase = 0
+	ReducePhase = 1
+	MapTask = 0
+	ReduceTask = 1
+)//宏定义
 type Task struct {
 	WorkType int // 0: map, 1: reduce
 	Filename string // 文件名
@@ -17,11 +22,11 @@ type Task struct {
 type Coordinator struct {
 	// Your definitions here.
 	//workers []*Worker
-	task []Task
 	files []string
 	Phase int // 0:map, 1:reduce, 2:done
-	wg sync.WaitGroup
-	TaskChan chan *Task
+	ReduceNum int//reduce任务数量
+	MapTaskChan chan *Task
+	ReduceTaskChan chan *Task
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -37,6 +42,11 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskReply) error {
+	if c.Phase == MapPhase {
+		reply.Task = <-c.MapTaskChan
+	} else if c.Phase == ReducePhase {
+		reply.Task = <-c.ReduceTaskChan
+	}
 	return nil
 }
 //
@@ -63,7 +73,7 @@ func (c *Coordinator) Done() bool {
 	ret := false
 
 	// Your code here.
-
+	
 
 	return ret
 }
@@ -74,11 +84,29 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
+	c := Coordinator{
+		files: files,
+		ReduceNum: nReduce,
+		MapTaskChan: make(chan *Task, 10),
+		ReduceTaskChan: make(chan *Task, nReduce),
+		Phase: MapPhase,
+	}
 
 	// Your code here.
-
+	MakeMapTask(files, &c)
 
 	c.server()
 	return &c
+}
+func MakeMapTask(files []string, c *Coordinator) {
+	// 生成map任务并写入管道
+	for _, file := range files {
+		task := Task{
+			WorkType: MapTask,
+			Filename: file,
+			TaskId: 0,
+		}
+		c.MapTaskChan <- &task
+	}
+	fmt.Println("MapTask生成完成")
 }
