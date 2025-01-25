@@ -21,6 +21,7 @@ type Coordinator struct {
 	files []string
 	Phase int // 0:map, 1:reduce, 2:done
 	wg sync.WaitGroup
+	TaskChan chan *Task
 }
 
 // Your code here -- RPC handlers for the worker to call.
