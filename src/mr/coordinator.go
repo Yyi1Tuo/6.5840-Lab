@@ -5,15 +5,19 @@ import "net"
 import "os"
 import "net/rpc"
 import "net/http"
-
+import "sync"
+import "time"
 
 type Coordinator struct {
 	// Your definitions here.
-
+	//workers []*Worker
+	State int // 0:map, 1:reduce, 2:done
+	
 }
 
-// Your code here -- RPC handlers for the worker to call.
 
+// Your code here -- RPC handlers for the worker to call.
+var waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
 //
 // an example RPC handler.
 //
