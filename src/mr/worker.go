@@ -50,8 +50,23 @@ func GetTask(workType int) *Task {
 	return reply.Task
 }
 
-func DoMapTask() {
+func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	// 执行任务
+	intermediate := []mr.KeyValue{}
+	for _, filename := range os.Args[2:] {
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		content, err := ioutil.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", filename)
+		}
+		file.Close()
+		kva := mapf(filename, string(content))
+		intermediate = append(intermediate, kva...)
+	}
+	return nil
 }
 
 func DoReduceTask() {
