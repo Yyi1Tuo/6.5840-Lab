@@ -4,7 +4,9 @@ import "fmt"
 import "log"
 import "net/rpc"
 import "hash/fnv"
-
+import "os"
+import "io/ioutil"
+import "sort"
 //
 // Map functions return a slice of KeyValue.
 //
@@ -12,6 +14,13 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -32,9 +41,9 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
     taskPtr := GetTask(0)
 	if taskPtr.WorkType == 0 {
-		DoMapTask()
+		DoMapTask(taskPtr, mapf)
 	} else {
-		DoReduceTask()
+		DoReduceTask(taskPtr, reducef)
 	}
 	fmt.Println(*taskPtr)
 	// uncomment to send the Example RPC to the coordinator.
@@ -52,24 +61,28 @@ func GetTask(workType int) *Task {
 
 func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	// 执行任务
-	intermediate := []mr.KeyValue{}
-	for _, filename := range os.Args[2:] {
-		file, err := os.Open(filename)
-		if err != nil {
-			log.Fatalf("cannot open %v", filename)
-		}
-		content, err := ioutil.ReadAll(file)
-		if err != nil {
-			log.Fatalf("cannot read %v", filename)
-		}
-		file.Close()
-		kva := mapf(filename, string(content))
-		intermediate = append(intermediate, kva...)
+	intermediate := []KeyValue{} //中间结果
+	file, err := os.Open(task.Filename)
+	defer file.Close()
+	if err != nil {
+		log.Fatalf("cannot open %v", task.Filename)
 	}
-	return nil
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", task.Filename)
+	}
+
+	kva := mapf(task.Filename, string(content))
+	intermediate = append(intermediate, kva...)
+
+	sort.Sort(ByKey(intermediate))
+
+	fmt.Println(intermediate)
+	//oname := "mr-out-" + strconv.Itoa(task.TaskId)
+	//ofile, _ := os.Create(oname)
 }
 
-func DoReduceTask() {
+func DoReduceTask(task *Task, reducef func(string, []string) string) {
 	// 执行任务
 }
 
