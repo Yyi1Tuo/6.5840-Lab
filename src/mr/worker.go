@@ -4,7 +4,9 @@ import "fmt"
 import "log"
 import "net/rpc"
 import "hash/fnv"
-
+import "os"
+import "io/ioutil"
+import "sort"
 //
 // Map functions return a slice of KeyValue.
 //
@@ -12,6 +14,13 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -30,18 +39,19 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-    task := GetTask(0)
-	if task.WorkType == 0 {
-		DoMapTask()
+    taskPtr := GetTask(0)
+	if taskPtr.WorkType == 0 {
+		DoMapTask(taskPtr, mapf)
 	} else {
-		DoReduceTask()
+		DoReduceTask(taskPtr, reducef)
 	}
+	fmt.Println(*taskPtr)
 	// uncomment to send the Example RPC to the coordinator.
 	 //CallExample()
 	
 }
 
-func GetTask(workType int) Task {
+func GetTask(workType int) *Task {
 	// 从coordinator获取任务
 	args := AllocateTaskArgs{workType}
 	reply := AllocateTaskReply{}
@@ -49,11 +59,30 @@ func GetTask(workType int) Task {
 	return reply.Task
 }
 
-func DoMapTask() {
+func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	// 执行任务
+	intermediate := []KeyValue{} //中间结果
+	file, err := os.Open(task.Filename)
+	defer file.Close()
+	if err != nil {
+		log.Fatalf("cannot open %v", task.Filename)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", task.Filename)
+	}
+
+	kva := mapf(task.Filename, string(content))
+	intermediate = append(intermediate, kva...)
+
+	sort.Sort(ByKey(intermediate))
+
+	fmt.Println(intermediate)
+	//oname := "mr-out-" + strconv.Itoa(task.TaskId)
+	//ofile, _ := os.Create(oname)
 }
 
-func DoReduceTask() {
+func DoReduceTask(task *Task, reducef func(string, []string) string) {
 	// 执行任务
 }
 

@@ -18,7 +18,7 @@ type AllocateTaskArgs struct {
 }
 
 type AllocateTaskReply struct {
-	Task Task
+	Task *Task
 }
 
 type ExampleArgs struct {
