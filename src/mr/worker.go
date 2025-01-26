@@ -122,7 +122,6 @@ func CallExample() {
 	args.X = 99
 	// declare a reply structure.
 	reply := ExampleReply{}
-
 	// send the RPC request, wait for the reply.
 	// the "Coordinator.Example" tells the
 	// receiving server that we'd like to call
