@@ -7,6 +7,9 @@ import "hash/fnv"
 import "os"
 import "io/ioutil"
 import "sort"
+import "encoding/json"
+import "strconv"
+
 //
 // Map functions return a slice of KeyValue.
 //
@@ -45,7 +48,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	} else {
 		DoReduceTask(taskPtr, reducef)
 	}
-	fmt.Println(*taskPtr)
+	//fmt.Println(*taskPtr)
 	// uncomment to send the Example RPC to the coordinator.
 	 //CallExample()
 	
@@ -72,14 +75,33 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 		log.Fatalf("cannot read %v", task.Filename)
 	}
 
-	kva := mapf(task.Filename, string(content))
-	intermediate = append(intermediate, kva...)
-
+	intermediate = mapf(task.Filename, string(content))
 	sort.Sort(ByKey(intermediate))
 
-	fmt.Println(intermediate)
-	//oname := "mr-out-" + strconv.Itoa(task.TaskId)
-	//ofile, _ := os.Create(oname)
+	// 将map结果根据ihash分配到对应reduce任务
+	HashKV := make([][]KeyValue, task.ReduceNum) //HashKV[reduce任务id] = []KeyValue
+	for _, v := range intermediate {
+		index := ihash(v.Key) % task.ReduceNum
+		HashKV[index] = append(HashKV[index], v)
+	}
+
+	// 将reduce结果写入中间文件
+	for i:=0;i<task.ReduceNum;i++{
+		oname := "mr-" + strconv.Itoa(task.TaskId) + "-" + strconv.Itoa(i)
+		ofile, ok := os.Create(oname)
+		if ok != nil {
+			log.Fatalf("cannot create %v", oname)
+		}
+		enc := json.NewEncoder(ofile)
+		for _, kv := range HashKV[i] {
+			err:=enc.Encode(kv)
+			if err != nil {
+				log.Fatalf("cannot encode %v", kv)
+			}
+		}
+		ofile.Close()
+	}
+	
 }
 
 func DoReduceTask(task *Task, reducef func(string, []string) string) {

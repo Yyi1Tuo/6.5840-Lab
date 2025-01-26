@@ -18,6 +18,7 @@ type Task struct {
 	WorkType int // 0: map, 1: reduce
 	Filename string // 文件名
 	TaskId int // 任务id，用于生成中间文件名mr-X-Y
+	ReduceNum int //reduce任务数量
 }
 
 type Coordinator struct {
@@ -110,6 +111,7 @@ func MakeMapTask(files []string, c *Coordinator) {
 			WorkType: MapTask,
 			Filename: file,
 			TaskId: i,
+			ReduceNum: c.ReduceNum,
 		}
 		c.MapTaskChan <- &task
 	}
