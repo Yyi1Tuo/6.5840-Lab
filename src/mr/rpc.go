@@ -30,6 +30,12 @@ type DoneReportArgs struct {
 type DoneReportReply struct {
 	
 }
+type HeartbeatArgs struct {
+	Task *Task
+}
+type HeartbeatReply struct {
+	Alive bool
+}
 //
 type AllocateTaskArgs struct {
 	//WorkType int // 0: map, 1: reduce
