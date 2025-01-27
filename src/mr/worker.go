@@ -9,6 +9,7 @@ import "io/ioutil"
 import "sort"
 import "encoding/json"
 import "strconv"
+import "time"
 
 //
 // Map functions return a slice of KeyValue.
@@ -42,21 +43,38 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-    taskPtr := GetTask(0)
-	if taskPtr.WorkType == 0 {
-		DoMapTask(taskPtr, mapf)
-	} else {
-		DoReduceTask(taskPtr, reducef)
+	for {
+		phase := CheckPhase()
+		switch phase {
+		case MapPhase:
+			taskPtr := GetTask()
+			DoMapTask(taskPtr, mapf)
+		case ReducePhase:
+			taskPtr := GetTask()
+			DoReduceTask(taskPtr, reducef)
+		case WaitPhase:
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	//fmt.Println(*taskPtr)
 	// uncomment to send the Example RPC to the coordinator.
 	 //CallExample()
 	
 }
-
-func GetTask(workType int) *Task {
+func DoneReport(taskPtr *Task) {
+	args := DoneReportArgs{TaskId: taskPtr.TaskId}
+	reply := DoneReportReply{}
+	call("Coordinator.DoneReport", &args, &reply)
+}
+func CheckPhase() int {
+	args := CheakPhaseArgs{}
+	reply := CheakPhaseReply{}
+	call("Coordinator.CheakPhase", &args, &reply)
+	return reply.Phase
+}
+func GetTask() *Task {
 	// 从coordinator获取任务
-	args := AllocateTaskArgs{workType}
+	args := AllocateTaskArgs{}
 	reply := AllocateTaskReply{}
     call("Coordinator.AllocateTask", &args, &reply)
 	return reply.Task
@@ -101,7 +119,7 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 		}
 		ofile.Close()
 	}
-	
+	DoneReport(task)
 }
 
 func DoReduceTask(task *Task, reducef func(string, []string) string) {
@@ -122,7 +140,6 @@ func CallExample() {
 	args.X = 99
 	// declare a reply structure.
 	reply := ExampleReply{}
-
 	// send the RPC request, wait for the reply.
 	// the "Coordinator.Example" tells the
 	// receiving server that we'd like to call
