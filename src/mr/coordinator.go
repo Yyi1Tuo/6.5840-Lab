@@ -24,6 +24,7 @@ type Task struct {
 }
 
 var mu sync.Mutex//互斥访问TaskMap
+var PhaseMu sync.Mutex//互斥访问Phase
 
 type Coordinator struct {
 	// Your definitions here.
@@ -50,6 +51,8 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskReply) error {
+	PhaseMu.Lock()
+	defer PhaseMu.Unlock()
 	if c.Phase == MapPhase {
 		reply.Task = <-c.MapTaskChan
 	} else if c.Phase == ReducePhase {
@@ -127,6 +130,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			mu.Unlock()
 			if flag == 0 {
 				fmt.Println("Map任务完成")
+				PhaseMu.Lock()
+				defer PhaseMu.Unlock()
 				c.Phase = ReducePhase
 				break;
 			}
