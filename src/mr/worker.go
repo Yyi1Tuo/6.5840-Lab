@@ -53,8 +53,9 @@ func Worker(mapf func(string, string) []KeyValue,
 			taskPtr := GetTask()
 			DoReduceTask(taskPtr, reducef)
 		case WaitPhase:
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(1000 * time.Millisecond)
 		}
+		time.Sleep(1000 * time.Millisecond)
 	}
 	//fmt.Println(*taskPtr)
 	// uncomment to send the Example RPC to the coordinator.
@@ -82,6 +83,8 @@ func GetTask() *Task {
 
 func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	// 执行任务
+	done := make(chan bool)
+	go SendHeartbeat(task,done)
 	intermediate := []KeyValue{} //中间结果
 	file, err := os.Open(task.Filename)
 	defer file.Close()
@@ -119,13 +122,26 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 		}
 		ofile.Close()
 	}
+	done <- true
 	DoneReport(task)
 }
 
 func DoReduceTask(task *Task, reducef func(string, []string) string) {
 	// 执行任务
+	 
 }
+func SendHeartbeat(task *Task,done chan bool) {
+	ticker := time.NewTicker(1 * time.Second)
+	for _ = range ticker.C {
+		args := HeartbeatArgs{Task: task}
+		reply := HeartbeatReply{}
+		call("Coordinator.Heartbeat", &args, &reply)
+		if <-done{
+			break
+		}
+	}
 
+}
 
 //
 // example function to show how to make an RPC call to the coordinator.
