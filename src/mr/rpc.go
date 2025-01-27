@@ -12,9 +12,21 @@ import "strconv"
 //
 // example to show how to declare the arguments
 // and reply for an RPC.
+type HeartBeatArgs struct {
+	
+}
+type HeartBeatReply struct {
+	//Phase int
+}
+type  CheakPhaseArgs struct {
+	//Phase int
+}
+type CheakPhaseReply struct {
+	Phase int
+}
 //
 type AllocateTaskArgs struct {
-	WorkType int // 0: map, 1: reduce
+	//WorkType int // 0: map, 1: reduce
 }
 
 type AllocateTaskReply struct {

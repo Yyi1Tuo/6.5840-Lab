@@ -11,6 +11,7 @@ import "fmt"
 const (
 	MapPhase = 0
 	ReducePhase = 1
+	WaitPhase = 2
 	MapTask = 0
 	ReduceTask = 1
 )//宏定义
@@ -24,6 +25,7 @@ type Task struct {
 type Coordinator struct {
 	// Your definitions here.
 	//workers []*Worker
+	TaskMap map[*Task] int //任务状态 0:未分配，1:已分配，2:已完成
 	files []string
 	Phase int // 0:map, 1:reduce, 2:done
 	ReduceNum int //reduce任务数量
@@ -38,6 +40,7 @@ const waitTime = 10 * time.Second //等待worker完成任务的时间，超出�
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
+
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
@@ -49,6 +52,11 @@ func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskRe
 	} else if c.Phase == ReducePhase {
 		reply.Task = <-c.ReduceTaskChan
 	}
+	return nil
+}
+
+func (c *Coordinator) CheakPhase(args *CheakPhaseArgs, reply *CheakPhaseReply) error {
+	reply.Phase = c.Phase
 	return nil
 }
 //
@@ -87,6 +95,7 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
+		TaskMap: make(map[*Task] int),
 		files: files,
 		ReduceNum: nReduce,
 		MapTaskChan: make(chan *Task, 10),
@@ -114,6 +123,7 @@ func MakeMapTask(files []string, c *Coordinator) {
 			ReduceNum: c.ReduceNum,
 		}
 		c.MapTaskChan <- &task
+		c.TaskMap[&task] = MapPhase
 	}
 	fmt.Println("MapTask生成完成")
 }
