@@ -7,6 +7,7 @@ import "net/rpc"
 import "net/http"
 import "time"
 import "fmt"
+import "sync"
 
 const (
 	MapPhase = 0
@@ -22,10 +23,12 @@ type Task struct {
 	ReduceNum int //reduce任务数量
 }
 
+var mu sync.Mutex//互斥访问TaskMap
+
 type Coordinator struct {
 	// Your definitions here.
 	//workers []*Worker
-	TaskMap map[*Task] int //任务状态 0:未分配，1:已分配，2:已完成
+	TaskMap map[int] int //任务状态 0:map, 1:reduce, 2:wait map[taskId] status
 	files []string
 	Phase int // 0:map, 1:reduce, 2:done
 	ReduceNum int //reduce任务数量
@@ -59,6 +62,14 @@ func (c *Coordinator) CheakPhase(args *CheakPhaseArgs, reply *CheakPhaseReply) e
 	reply.Phase = c.Phase
 	return nil
 }
+
+func (c *Coordinator) DoneReport(args *DoneReportArgs, reply *DoneReportReply) error {
+	mu.Lock()
+	defer mu.Unlock()
+	//fmt.Println(c.TaskMap[args.Task])
+	c.TaskMap[args.TaskId] = WaitPhase
+	return nil
+}
 //
 // start a thread that listens for RPCs from worker.go
 //
@@ -81,10 +92,7 @@ func (c *Coordinator) server() {
 //
 func (c *Coordinator) Done() bool {
 	ret := false
-
 	// Your code here.
-	
-
 	return ret
 }
 
@@ -95,18 +103,38 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
-		TaskMap: make(map[*Task] int),
+		TaskMap: make(map[int] int),
 		files: files,
 		ReduceNum: nReduce,
-		MapTaskChan: make(chan *Task, 10),
+		MapTaskChan: make(chan *Task, len(files)),
 		ReduceTaskChan: make(chan *Task, nReduce),
 		Phase: MapPhase,
 	}
-
+	c.server()
 	// Your code here.
 	MakeMapTask(files, &c)
-
-	c.server()
+	
+	go func(){	
+		for{
+			mu.Lock()
+			flag := 0 //free
+			for _, status := range c.TaskMap {
+				if status == MapPhase {
+					flag = 1//busy
+					break;
+				}
+			}
+			mu.Unlock()
+			if flag == 0 {
+				fmt.Println("Map任务完成")
+				c.Phase = ReducePhase
+				break;
+			}
+			time.Sleep(1000 * time.Millisecond)
+		}
+	}()
+	
+	
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
@@ -123,7 +151,7 @@ func MakeMapTask(files []string, c *Coordinator) {
 			ReduceNum: c.ReduceNum,
 		}
 		c.MapTaskChan <- &task
-		c.TaskMap[&task] = MapPhase
+		c.TaskMap[i] = MapPhase
 	}
 	fmt.Println("MapTask生成完成")
 }

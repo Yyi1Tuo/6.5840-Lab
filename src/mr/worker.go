@@ -61,6 +61,11 @@ func Worker(mapf func(string, string) []KeyValue,
 	 //CallExample()
 	
 }
+func DoneReport(taskPtr *Task) {
+	args := DoneReportArgs{TaskId: taskPtr.TaskId}
+	reply := DoneReportReply{}
+	call("Coordinator.DoneReport", &args, &reply)
+}
 func CheckPhase() int {
 	args := CheakPhaseArgs{}
 	reply := CheakPhaseReply{}
@@ -114,7 +119,7 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 		}
 		ofile.Close()
 	}
-	
+	DoneReport(task)
 }
 
 func DoReduceTask(task *Task, reducef func(string, []string) string) {

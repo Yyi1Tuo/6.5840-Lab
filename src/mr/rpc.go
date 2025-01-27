@@ -24,6 +24,12 @@ type  CheakPhaseArgs struct {
 type CheakPhaseReply struct {
 	Phase int
 }
+type DoneReportArgs struct {
+	TaskId int
+}
+type DoneReportReply struct {
+	
+}
 //
 type AllocateTaskArgs struct {
 	//WorkType int // 0: map, 1: reduce
