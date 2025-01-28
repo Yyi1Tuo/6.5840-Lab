@@ -164,17 +164,15 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		}
 	}()
 	
-
 	//reduce任务
+	MakeReduceTask(&c)
 	
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
-	
 	//
 	// 生成map任务并写入管道
 	//
-	
 	for i, file := range files {
 		task := Task{
 			WorkType: MapTask,
@@ -187,6 +185,22 @@ func MakeMapTask(files []string, c *Coordinator) {
 		c.Tasks[i] = task
 	}
 	fmt.Println("MapTask生成完成")
+}
+func MakeReduceTask(c *Coordinator){
+	//生成reduce任务并写入管道
+	for i := 0; i .< c.ReduceNum; i++ {
+		task := Task{
+			WorkType: ReduceTask,
+			TaskId:   i,
+			Filename: nil,
+			ReduceNum: c.ReduceNum,
+		}
+		c.ReduceTaskChan <- &task
+		c.TaskMap[i] = ReducePhase
+		c.Tasks[i] = task
+	}
+	fmt.Println("ReduceTask生成完成")
+
 }
 
 func ReceiveHeartbeat(c *Coordinator) {

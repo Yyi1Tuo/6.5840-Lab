@@ -127,7 +127,7 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 
 func DoReduceTask(task *Task, reducef func(string, []string) string) {
 	// 执行任务
-	 
+	
 }
 func SendHeartbeat(task *Task,done chan bool) {
 	ticker := time.NewTicker(1 * time.Second)
