@@ -43,6 +43,7 @@ type AllocateTaskArgs struct {
 
 type AllocateTaskReply struct {
 	Task *Task
+	Lenfiles int
 }
 
 type ExampleArgs struct {

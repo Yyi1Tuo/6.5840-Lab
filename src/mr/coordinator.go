@@ -61,8 +61,10 @@ func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskRe
 	defer PhaseMu.Unlock()
 	if c.Phase == MapPhase {
 		reply.Task = <-c.MapTaskChan
+		reply.Lenfiles = -1
 	} else if c.Phase == ReducePhase {
 		reply.Task = <-c.ReduceTaskChan
+		reply.Lenfiles = len(c.files)
 	}
 	return nil
 }
@@ -142,7 +144,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	//应该加上heartbeat机制？ to be done
 	go ReceiveHeartbeat(&c)
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func(){	
+		defer wg.Done()
 		for{
 			mu.Lock()
 			flag := 0 //free
@@ -162,8 +167,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			}
 			time.Sleep(1000 * time.Millisecond)
 		}
+		
 	}()
-	
+
+	wg.Wait()
 	//reduce任务
 	MakeReduceTask(&c)
 	
@@ -188,11 +195,11 @@ func MakeMapTask(files []string, c *Coordinator) {
 }
 func MakeReduceTask(c *Coordinator){
 	//生成reduce任务并写入管道
-	for i := 0; i .< c.ReduceNum; i++ {
+	for i := 0; i< c.ReduceNum; i++ {
 		task := Task{
 			WorkType: ReduceTask,
 			TaskId:   i,
-			Filename: nil,
+			Filename: "",
 			ReduceNum: c.ReduceNum,
 		}
 		c.ReduceTaskChan <- &task

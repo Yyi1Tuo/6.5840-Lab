@@ -47,11 +47,11 @@ func Worker(mapf func(string, string) []KeyValue,
 		phase := CheckPhase()
 		switch phase {
 		case MapPhase:
-			taskPtr := GetTask()
+			taskPtr,_ := GetTask()
 			DoMapTask(taskPtr, mapf)
 		case ReducePhase:
-			taskPtr := GetTask()
-			DoReduceTask(taskPtr, reducef)
+			taskPtr,lenfiles := GetTask()
+			DoReduceTask(taskPtr, reducef,lenfiles)
 		case WaitPhase:
 			time.Sleep(1000 * time.Millisecond)
 		}
@@ -72,12 +72,12 @@ func CheckPhase() int {
 	call("Coordinator.CheakPhase", &args, &reply)
 	return reply.Phase
 }
-func GetTask() *Task {
+func GetTask() (*Task,int) {
 	// 从coordinator获取任务
 	args := AllocateTaskArgs{}
 	reply := AllocateTaskReply{}
     call("Coordinator.AllocateTask", &args, &reply)
-	return reply.Task
+	return reply.Task,reply.Lenfiles
 }
 
 func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
@@ -125,9 +125,56 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	DoneReport(task)
 }
 
-func DoReduceTask(task *Task, reducef func(string, []string) string) {
+func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int) {
 	// 执行任务
-	
+	done := make(chan bool)
+	go SendHeartbeat(task,done)//启动心跳
+
+	// 读取中间文件
+	intermediate := []KeyValue{}
+	for i:=0;i<lenfiles;i++{
+		oname := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(task.TaskId)
+		file, err := os.Open(oname)
+		if err != nil {
+			log.Fatalf("cannot open %v", oname)
+		}
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			intermediate = append(intermediate, kv)
+		}
+	}
+	sort.Sort(ByKey(intermediate))
+
+	// 调用reducef函数
+	outname := "mr-out-" + strconv.Itoa(task.TaskId)
+	outfile, _ := os.Create(outname)
+
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(intermediate[i].Key, values)
+
+		// 按照正确的格式写入每一行reduce输出
+		fmt.Fprintf(outfile, "%v %v\n", intermediate[i].Key, output)
+
+		i = j
+	}
+
+	outfile.Close()
+
+	done <- true
+	DoneReport(task)
 }
 func SendHeartbeat(task *Task,done chan bool) {
 	ticker := time.NewTicker(1 * time.Second)
