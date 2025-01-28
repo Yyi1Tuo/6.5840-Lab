@@ -61,8 +61,10 @@ func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskRe
 	defer PhaseMu.Unlock()
 	if c.Phase == MapPhase {
 		reply.Task = <-c.MapTaskChan
+		reply.Lenfiles = -1
 	} else if c.Phase == ReducePhase {
 		reply.Task = <-c.ReduceTaskChan
+		reply.Lenfiles = len(c.files)
 	}
 	return nil
 }
@@ -90,7 +92,7 @@ func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) erro
 	HeartbeatMu.Lock()
 	defer HeartbeatMu.Unlock()
 	c.HeartbeatMap[args.Task.TaskId] = time.Now()
-	fmt.Println("Heartbeat received from task",args.Task.TaskId,"at",time.Now())
+	//fmt.Println("Heartbeat received from task",args.Task.TaskId,"at",time.Now())
 	return nil
 }
 //
@@ -142,7 +144,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	//应该加上heartbeat机制？ to be done
 	go ReceiveHeartbeat(&c)
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func(){	
+		defer wg.Done()
 		for{
 			mu.Lock()
 			flag := 0 //free
@@ -162,19 +167,19 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			}
 			time.Sleep(1000 * time.Millisecond)
 		}
+		
 	}()
-	
 
+	wg.Wait()
 	//reduce任务
+	MakeReduceTask(&c)
 	
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
-	
 	//
 	// 生成map任务并写入管道
 	//
-	
 	for i, file := range files {
 		task := Task{
 			WorkType: MapTask,
@@ -187,6 +192,22 @@ func MakeMapTask(files []string, c *Coordinator) {
 		c.Tasks[i] = task
 	}
 	fmt.Println("MapTask生成完成")
+}
+func MakeReduceTask(c *Coordinator){
+	//生成reduce任务并写入管道
+	for i := 0; i< c.ReduceNum; i++ {
+		task := Task{
+			WorkType: ReduceTask,
+			TaskId:   i,
+			Filename: "",
+			ReduceNum: c.ReduceNum,
+		}
+		c.ReduceTaskChan <- &task
+		c.TaskMap[i] = ReducePhase
+		c.Tasks[i] = task
+	}
+	fmt.Println("ReduceTask生成完成")
+
 }
 
 func ReceiveHeartbeat(c *Coordinator) {
