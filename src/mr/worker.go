@@ -56,10 +56,9 @@ func Worker(mapf func(string, string) []KeyValue,
 			time.Sleep(1000 * time.Millisecond)
 		}
 		time.Sleep(1000 * time.Millisecond)
+		fmt.Println("Current Phase : ",phase)
 	}
-	//fmt.Println(*taskPtr)
-	// uncomment to send the Example RPC to the coordinator.
-	 //CallExample()
+
 	
 }
 func DoneReport(taskPtr *Task) {

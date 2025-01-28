@@ -90,7 +90,7 @@ func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) erro
 	HeartbeatMu.Lock()
 	defer HeartbeatMu.Unlock()
 	c.HeartbeatMap[args.Task.TaskId] = time.Now()
-	fmt.Println("Heartbeat received from task",args.Task.TaskId,"at",time.Now())
+	//fmt.Println("Heartbeat received from task",args.Task.TaskId,"at",time.Now())
 	return nil
 }
 //
