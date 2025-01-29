@@ -99,7 +99,7 @@ func (c *Coordinator) DoneReport(args *DoneReportArgs, reply *DoneReportReply) e
 	delete(c.TaskMap, args.TaskId)
 	delete(c.HeartbeatMap, args.TaskId)
 	delete(c.Tasks, args.TaskId)
-	fmt.Println("Task",args.TaskId,"done")
+	//fmt.Println("Task",args.TaskId,"done")
 	return nil
 }
 func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {

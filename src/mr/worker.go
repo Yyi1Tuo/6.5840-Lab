@@ -185,7 +185,6 @@ func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int
 	}
 
 	outfile.Close()
-	fmt.Println("File created")
 	done <- true
 	DoneReport(task)
 }
