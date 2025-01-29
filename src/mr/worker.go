@@ -45,12 +45,23 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 	for {
 		phase := CheckPhase()
+		//这里可能导致死锁，假如worker拿到了phase=map进入gettask后，事实上这个时候task已经分配完毕了，
+		//而coordinator的phase变为reduce，worker会一直等待，直到timeout
+
+		//所以allocateTask需要返回一个bool，表示是否还有任务
+		//如果还有任务，则继续执行，否则退出
 		switch phase {
 		case MapPhase:
 			taskPtr,_ := GetTask()
+			if taskPtr == nil {
+				continue
+			}
 			DoMapTask(taskPtr, mapf)
 		case ReducePhase:
 			taskPtr,lenfiles := GetTask()
+			if taskPtr == nil {
+				continue
+			}
 			DoReduceTask(taskPtr, reducef,lenfiles)
 		case WaitPhase:
 			time.Sleep(1000 * time.Millisecond)

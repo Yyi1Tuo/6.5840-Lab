@@ -60,12 +60,23 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskReply) error {
 	PhaseMu.Lock()
 	defer PhaseMu.Unlock()
+	//设置一个超时器，如果阻塞过久，则认为没有任务了，直接返回
 	if c.Phase == MapPhase {
-		reply.Task = <-c.MapTaskChan
-		reply.Lenfiles = -1
+		select {
+		case reply.Task = <-c.MapTaskChan:
+			reply.Lenfiles = -1
+		case <-time.After(1500 * time.Millisecond):
+			reply.Task = nil
+			reply.Lenfiles = 0
+		}
 	} else if c.Phase == ReducePhase {
-		reply.Task = <-c.ReduceTaskChan
-		reply.Lenfiles = len(c.files)
+		select {
+		case reply.Task = <-c.ReduceTaskChan:
+			reply.Lenfiles = len(c.files)
+		case <-time.After(1500 * time.Millisecond):
+			reply.Task = nil
+			reply.Lenfiles = 0
+		}
 	}
 	return nil
 }
@@ -168,10 +179,11 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 				PhaseMu.Lock()
 				defer PhaseMu.Unlock()
 				c.Phase = ReducePhase
-				fmt.Println("Map任务完成 State changed")
+				//fmt.Println("Map任务完成 State changed")
 				break;
 			}
-			time.Sleep(1000 * time.Millisecond)
+			//fmt.Println("Map任务未完成")
+			time.Sleep(100 * time.Millisecond)
 		}
 		
 	}()
@@ -197,10 +209,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 				PhaseMu.Lock()
 				defer PhaseMu.Unlock()
 				c.Phase = DonePhase
-				fmt.Println("Reduce任务完成 State changed")
+				//fmt.Println("Reduce任务完成 State changed")
 				break;
 			}
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 	wg.Wait()
