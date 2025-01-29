@@ -6,7 +6,7 @@ import "os"
 import "net/rpc"
 import "net/http"
 import "time"
-import "fmt"
+//import "fmt"
 import "sync"
 
 const (
@@ -14,6 +14,7 @@ const (
 	ReducePhase = 1
 	WaitPhase = 2
 	DeadPhase = 3
+	DonePhase = 4
 	MapTask = 0
 	ReduceTask = 1
 	
@@ -44,7 +45,6 @@ type Coordinator struct {
 }
 
 // Your code here -- RPC handlers for the worker to call.
-const waitTime = 10 * time.Second //等待worker完成任务的时间，超出则认为worker挂了
 //
 // an example RPC handler.
 //
@@ -59,17 +59,37 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskReply) error {
 	PhaseMu.Lock()
 	defer PhaseMu.Unlock()
+	//设置一个超时器，如果阻塞过久，则认为没有任务了，直接返回
 	if c.Phase == MapPhase {
-		reply.Task = <-c.MapTaskChan
-		reply.Lenfiles = -1
+		select {
+		// 重要：先注册心跳，再分配任务
+		case reply.Task = <-c.MapTaskChan:
+			reply.Lenfiles = -1
+			HeartbeatMu.Lock()
+			c.HeartbeatMap[reply.Task.TaskId] = time.Now()
+			HeartbeatMu.Unlock()
+		case <-time.After(1500 * time.Millisecond):
+			reply.Task = nil
+			reply.Lenfiles = 0
+		}
 	} else if c.Phase == ReducePhase {
-		reply.Task = <-c.ReduceTaskChan
-		reply.Lenfiles = len(c.files)
+		select {
+		case reply.Task = <-c.ReduceTaskChan:
+			reply.Lenfiles = len(c.files)
+			HeartbeatMu.Lock()
+			c.HeartbeatMap[reply.Task.TaskId] = time.Now()
+			HeartbeatMu.Unlock()
+		case <-time.After(1500 * time.Millisecond):
+			reply.Task = nil
+			reply.Lenfiles = 0
+		}
 	}
 	return nil
 }
 
-func (c *Coordinator) CheakPhase(args *CheakPhaseArgs, reply *CheakPhaseReply) error {
+func (c *Coordinator) CheckPhase(args *CheckPhaseArgs, reply *CheckPhaseReply) error {
+	PhaseMu.Lock()
+	defer PhaseMu.Unlock()
 	reply.Phase = c.Phase
 	return nil
 }
@@ -85,7 +105,7 @@ func (c *Coordinator) DoneReport(args *DoneReportArgs, reply *DoneReportReply) e
 	delete(c.TaskMap, args.TaskId)
 	delete(c.HeartbeatMap, args.TaskId)
 	delete(c.Tasks, args.TaskId)
-	fmt.Println("Task",args.TaskId,"done")
+	//fmt.Println("Task",args.TaskId,"done")
 	return nil
 }
 func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
@@ -93,6 +113,7 @@ func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) erro
 	defer HeartbeatMu.Unlock()
 	c.HeartbeatMap[args.Task.TaskId] = time.Now()
 	//fmt.Println("Heartbeat received from task",args.Task.TaskId,"at",time.Now())
+	//如果rpc调用失败，则返回false
 	return nil
 }
 //
@@ -117,6 +138,9 @@ func (c *Coordinator) server() {
 //
 func (c *Coordinator) Done() bool {
 	ret := false
+	if c.Phase == DonePhase {
+		ret = true
+	}
 	// Your code here.
 	return ret
 }
@@ -133,15 +157,13 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		HeartbeatMap: make(map[int] time.Time),
 		files: files,
 		ReduceNum: nReduce,
-		MapTaskChan: make(chan *Task, len(files)),
-		ReduceTaskChan: make(chan *Task, nReduce),
+		MapTaskChan: make(chan *Task, 2*len(files)),
+		ReduceTaskChan: make(chan *Task, 2*nReduce),//多一倍缓冲区，防止阻塞
 		Phase: MapPhase,
 	}
 	c.server()
 	// Your code here.
 	MakeMapTask(files, &c)
-	//是否要考虑worker挂了的情况？
-	//应该加上heartbeat机制？ to be done
 	go ReceiveHeartbeat(&c)
 
 	wg := sync.WaitGroup{}
@@ -162,10 +184,11 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 				PhaseMu.Lock()
 				defer PhaseMu.Unlock()
 				c.Phase = ReducePhase
-				fmt.Println("Map任务完成 State changed")
+				//fmt.Println("Map任务完成 State changed")
 				break;
 			}
-			time.Sleep(1000 * time.Millisecond)
+			//fmt.Println("Map任务未完成")
+			time.Sleep(100 * time.Millisecond)
 		}
 		
 	}()
@@ -173,7 +196,34 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	wg.Wait()
 	//reduce任务
 	MakeReduceTask(&c)
-	
+	//等待reduce任务完成
+	wg.Add(1)
+	go func(){
+		defer wg.Done()
+		for{
+			mu.Lock()
+			flag := 0 //free
+			for _, status := range c.TaskMap {
+				if status == ReducePhase {
+					flag = 1//busy
+					break;
+				}
+			}
+			mu.Unlock()
+			if flag == 0 {
+				PhaseMu.Lock()
+				defer PhaseMu.Unlock()
+				c.Phase = DonePhase
+				//fmt.Println("Reduce任务完成 State changed")
+				break;
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	wg.Wait()
+
+	//所有任务完成 
+	//fmt.Println("所有任务完成")
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
@@ -189,9 +239,12 @@ func MakeMapTask(files []string, c *Coordinator) {
 		}
 		c.MapTaskChan <- &task
 		c.TaskMap[i] = MapPhase
+		//错误的做法在这里：c.HeartbeatMap[i] = time.Now()
+		//原因在于假如迟迟没有worker来领取任务，则会源源不断的挂任务
+		//正确的做法是：在任务被领取时，再去注册心跳时间
 		c.Tasks[i] = task
 	}
-	fmt.Println("MapTask生成完成")
+	//fmt.Println("MapTask生成完成")
 }
 func MakeReduceTask(c *Coordinator){
 	//生成reduce任务并写入管道
@@ -206,7 +259,7 @@ func MakeReduceTask(c *Coordinator){
 		c.TaskMap[i] = ReducePhase
 		c.Tasks[i] = task
 	}
-	fmt.Println("ReduceTask生成完成")
+	//fmt.Println("ReduceTask生成完成")
 
 }
 
@@ -217,11 +270,14 @@ func ReceiveHeartbeat(c *Coordinator) {
 	for _ = range ticker.C {
 		//每5秒检查一次心跳状态
 		HeartbeatMu.Lock()
+		//fmt.Println("HeartbeatMap:",c.HeartbeatMap)
 		for taskId, lastTime := range c.HeartbeatMap {
-			if time.Now().Sub(lastTime) > 10*time.Second {
-			//如果心跳时间超过10秒，则认为任务挂了
+			if time.Now().Sub(lastTime) > 5*time.Second {
+			//如果心跳时间超过5秒，则认为任务挂了
 				//如果任务挂了，则重新分配任务
 				TaskMu.Lock()
+				PhaseMu.Lock()
+				//fmt.Println("Task",taskId,"挂了")
 				//找出此Taskid对应的任务
 				var newtask Task
 				newtask = c.Tasks[taskId]
@@ -235,6 +291,7 @@ func ReceiveHeartbeat(c *Coordinator) {
 				//更新心跳状态
 				c.HeartbeatMap[taskId] = time.Now()	
 				TaskMu.Unlock()
+				PhaseMu.Unlock()
 				}
 				
 			}

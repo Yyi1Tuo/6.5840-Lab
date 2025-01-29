@@ -18,10 +18,10 @@ type HeartBeatArgs struct {
 type HeartBeatReply struct {
 	//Phase int
 }
-type  CheakPhaseArgs struct {
+type  CheckPhaseArgs struct {
 	//Phase int
 }
-type CheakPhaseReply struct {
+type CheckPhaseReply struct {
 	Phase int
 }
 type DoneReportArgs struct {

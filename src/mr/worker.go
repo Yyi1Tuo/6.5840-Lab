@@ -10,7 +10,8 @@ import "sort"
 import "encoding/json"
 import "strconv"
 import "time"
-
+import "sync"
+var GetTasklock sync.Mutex
 //
 // Map functions return a slice of KeyValue.
 //
@@ -45,18 +46,30 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 	for {
 		phase := CheckPhase()
+		//这里可能导致死锁，假如worker拿到了phase=map进入gettask后，事实上这个时候task已经分配完毕了，
+		//而coordinator的phase变为reduce，worker会一直等待，直到timeout
+		//所以allocateTask需要返回一个bool，表示是否还有任务
+		GetTasklock.Lock()
+		taskPtr,lenfiles := GetTask()
+		if taskPtr == nil {
+			GetTasklock.Unlock()
+			continue
+		}
+		done := make(chan bool)
+		go SendHeartbeat(taskPtr,done)
+		GetTasklock.Unlock()
 		switch phase {
 		case MapPhase:
-			taskPtr,_ := GetTask()
-			DoMapTask(taskPtr, mapf)
+			DoMapTask(taskPtr, mapf,done)
 		case ReducePhase:
-			taskPtr,lenfiles := GetTask()
-			DoReduceTask(taskPtr, reducef,lenfiles)
+			DoReduceTask(taskPtr, reducef,lenfiles,done)
 		case WaitPhase:
 			time.Sleep(1000 * time.Millisecond)
+		case DonePhase:
+			return
 		}
-		time.Sleep(1000 * time.Millisecond)
-		fmt.Println("Current Phase : ",phase)
+		time.Sleep(200 * time.Millisecond)
+		//fmt.Println("Current Phase : ",phase)
 	}
 
 	
@@ -64,35 +77,42 @@ func Worker(mapf func(string, string) []KeyValue,
 func DoneReport(taskPtr *Task) {
 	args := DoneReportArgs{TaskId: taskPtr.TaskId}
 	reply := DoneReportReply{}
-	call("Coordinator.DoneReport", &args, &reply)
+	ok := call("Coordinator.DoneReport", &args, &reply)
+	if !ok {
+		return
+	}
 }
-func CheckPhase() int {
-	args := CheakPhaseArgs{}
-	reply := CheakPhaseReply{}
-	call("Coordinator.CheakPhase", &args, &reply)
+func CheckPhase() int {	
+	args := CheckPhaseArgs{}
+	reply := CheckPhaseReply{}
+	ok := call("Coordinator.CheckPhase", &args, &reply)
+	if !ok {
+		return DonePhase
+	}
 	return reply.Phase
 }
 func GetTask() (*Task,int) {
 	// 从coordinator获取任务
 	args := AllocateTaskArgs{}
 	reply := AllocateTaskReply{}
-    call("Coordinator.AllocateTask", &args, &reply)
+	ok := call("Coordinator.AllocateTask", &args, &reply)
+	if !ok {
+		return nil,0
+	}
 	return reply.Task,reply.Lenfiles
 }
 
-func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
+func DoMapTask(task *Task, mapf func(string, string) []KeyValue,done chan bool) {
 	// 执行任务
-	done := make(chan bool)
-	go SendHeartbeat(task,done)
 	intermediate := []KeyValue{} //中间结果
 	file, err := os.Open(task.Filename)
 	defer file.Close()
 	if err != nil {
-		log.Fatalf("cannot open %v", task.Filename)
+		//log.Fatalf("cannot open %v", task.Filename) 为了bash好看，不打印错误
 	}
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
-		log.Fatalf("cannot read %v", task.Filename)
+		//log.Fatalf("cannot read %v", task.Filename)
 	}
 
 	intermediate = mapf(task.Filename, string(content))
@@ -125,18 +145,15 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	DoneReport(task)
 }
 
-func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int) {
+func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int,done chan bool) {
 	// 执行任务
-	done := make(chan bool)
-	go SendHeartbeat(task,done)//启动心跳
-
 	// 读取中间文件
 	intermediate := []KeyValue{}
 	for i:=0;i<lenfiles;i++{
 		oname := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(task.TaskId)
 		file, err := os.Open(oname)
 		if err != nil {
-			log.Fatalf("cannot open %v", oname)
+			//log.Fatalf("cannot open %v", oname)
 		}
 		dec := json.NewDecoder(file)
 		for {
@@ -172,16 +189,17 @@ func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int
 	}
 
 	outfile.Close()
-
 	done <- true
 	DoneReport(task)
 }
 func SendHeartbeat(task *Task,done chan bool) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	for _ = range ticker.C {
 		args := HeartbeatArgs{Task: task}
 		reply := HeartbeatReply{}
-		call("Coordinator.Heartbeat", &args, &reply)
+		if !call("Coordinator.Heartbeat", &args, &reply){
+			return
+		}
 		if <-done{
 			break
 		}
@@ -225,7 +243,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		// coordinator可能已经退出，静默处理错误
+		//log.Fatal("dialing:", err)
+		return false
 	}
 	defer c.Close()
 
@@ -234,6 +254,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		return true
 	}
 
-	fmt.Println(err)
+	//fmt.Println(err)
 	return false
 }

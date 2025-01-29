@@ -9,7 +9,7 @@
 
 if [[ "$OSTYPE" = "darwin"* ]]
 then
-  if go version | grep 'go1.17.[012345]'
+  if go version | grep 'go1.18.[012345]'
   then
     # -race with plug-ins on x86 MacOS 12 with
     # go1.17 before 1.17.6 sometimes crash.
