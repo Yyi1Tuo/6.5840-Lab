@@ -277,7 +277,7 @@ func ReceiveHeartbeat(c *Coordinator) {
 				//如果任务挂了，则重新分配任务
 				TaskMu.Lock()
 				PhaseMu.Lock()
-				fmt.Println("Task",taskId,"挂了")
+				//fmt.Println("Task",taskId,"挂了")
 				//找出此Taskid对应的任务
 				var newtask Task
 				newtask = c.Tasks[taskId]
