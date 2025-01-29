@@ -10,7 +10,8 @@ import "sort"
 import "encoding/json"
 import "strconv"
 import "time"
-
+import "sync"
+var GetTasklock sync.Mutex
 //
 // Map functions return a slice of KeyValue.
 //
@@ -47,22 +48,21 @@ func Worker(mapf func(string, string) []KeyValue,
 		phase := CheckPhase()
 		//这里可能导致死锁，假如worker拿到了phase=map进入gettask后，事实上这个时候task已经分配完毕了，
 		//而coordinator的phase变为reduce，worker会一直等待，直到timeout
-
 		//所以allocateTask需要返回一个bool，表示是否还有任务
-		//如果还有任务，则继续执行，否则退出
+		GetTasklock.Lock()
+		taskPtr,lenfiles := GetTask()
+		if taskPtr == nil {
+			GetTasklock.Unlock()
+			continue
+		}
+		done := make(chan bool)
+		go SendHeartbeat(taskPtr,done)
+		GetTasklock.Unlock()
 		switch phase {
 		case MapPhase:
-			taskPtr,_ := GetTask()
-			if taskPtr == nil {
-				continue
-			}
-			DoMapTask(taskPtr, mapf)
+			DoMapTask(taskPtr, mapf,done)
 		case ReducePhase:
-			taskPtr,lenfiles := GetTask()
-			if taskPtr == nil {
-				continue
-			}
-			DoReduceTask(taskPtr, reducef,lenfiles)
+			DoReduceTask(taskPtr, reducef,lenfiles,done)
 		case WaitPhase:
 			time.Sleep(1000 * time.Millisecond)
 		case DonePhase:
@@ -93,10 +93,8 @@ func GetTask() (*Task,int) {
 	return reply.Task,reply.Lenfiles
 }
 
-func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
+func DoMapTask(task *Task, mapf func(string, string) []KeyValue,done chan bool) {
 	// 执行任务
-	done := make(chan bool)
-	go SendHeartbeat(task,done)
 	intermediate := []KeyValue{} //中间结果
 	file, err := os.Open(task.Filename)
 	defer file.Close()
@@ -138,11 +136,8 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue) {
 	DoneReport(task)
 }
 
-func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int) {
+func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int,done chan bool) {
 	// 执行任务
-	done := make(chan bool)
-	go SendHeartbeat(task,done)//启动心跳
-
 	// 读取中间文件
 	intermediate := []KeyValue{}
 	for i:=0;i<lenfiles;i++{
@@ -189,11 +184,13 @@ func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int
 	DoneReport(task)
 }
 func SendHeartbeat(task *Task,done chan bool) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	for _ = range ticker.C {
 		args := HeartbeatArgs{Task: task}
 		reply := HeartbeatReply{}
-		call("Coordinator.Heartbeat", &args, &reply)
+		if !call("Coordinator.Heartbeat", &args, &reply){
+			return
+		}
 		if <-done{
 			break
 		}
