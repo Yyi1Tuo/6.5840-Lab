@@ -68,7 +68,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		case DonePhase:
 			return
 		}
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		//fmt.Println("Current Phase : ",phase)
 	}
 
@@ -77,19 +77,28 @@ func Worker(mapf func(string, string) []KeyValue,
 func DoneReport(taskPtr *Task) {
 	args := DoneReportArgs{TaskId: taskPtr.TaskId}
 	reply := DoneReportReply{}
-	call("Coordinator.DoneReport", &args, &reply)
+	ok := call("Coordinator.DoneReport", &args, &reply)
+	if !ok {
+		return
+	}
 }
 func CheckPhase() int {	
 	args := CheckPhaseArgs{}
 	reply := CheckPhaseReply{}
-	call("Coordinator.CheckPhase", &args, &reply)
+	ok := call("Coordinator.CheckPhase", &args, &reply)
+	if !ok {
+		return DonePhase
+	}
 	return reply.Phase
 }
 func GetTask() (*Task,int) {
 	// 从coordinator获取任务
 	args := AllocateTaskArgs{}
 	reply := AllocateTaskReply{}
-    call("Coordinator.AllocateTask", &args, &reply)
+	ok := call("Coordinator.AllocateTask", &args, &reply)
+	if !ok {
+		return nil,0
+	}
 	return reply.Task,reply.Lenfiles
 }
 
@@ -99,11 +108,11 @@ func DoMapTask(task *Task, mapf func(string, string) []KeyValue,done chan bool) 
 	file, err := os.Open(task.Filename)
 	defer file.Close()
 	if err != nil {
-		log.Fatalf("cannot open %v", task.Filename)
+		//log.Fatalf("cannot open %v", task.Filename) 为了bash好看，不打印错误
 	}
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
-		log.Fatalf("cannot read %v", task.Filename)
+		//log.Fatalf("cannot read %v", task.Filename)
 	}
 
 	intermediate = mapf(task.Filename, string(content))
@@ -144,7 +153,7 @@ func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int
 		oname := "mr-" + strconv.Itoa(i) + "-" + strconv.Itoa(task.TaskId)
 		file, err := os.Open(oname)
 		if err != nil {
-			log.Fatalf("cannot open %v", oname)
+			//log.Fatalf("cannot open %v", oname)
 		}
 		dec := json.NewDecoder(file)
 		for {
@@ -234,7 +243,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		// coordinator可能已经退出，静默处理错误
+		//log.Fatal("dialing:", err)
+		return false
 	}
 	defer c.Close()
 
@@ -243,6 +254,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		return true
 	}
 
-	fmt.Println(err)
+	//fmt.Println(err)
 	return false
 }
