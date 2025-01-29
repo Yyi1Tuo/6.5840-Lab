@@ -56,7 +56,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			time.Sleep(1000 * time.Millisecond)
 		}
 		time.Sleep(1000 * time.Millisecond)
-		fmt.Println("Current Phase : ",phase)
+		//fmt.Println("Current Phase : ",phase)
 	}
 
 	
@@ -66,10 +66,10 @@ func DoneReport(taskPtr *Task) {
 	reply := DoneReportReply{}
 	call("Coordinator.DoneReport", &args, &reply)
 }
-func CheckPhase() int {
-	args := CheakPhaseArgs{}
-	reply := CheakPhaseReply{}
-	call("Coordinator.CheakPhase", &args, &reply)
+func CheckPhase() int {	
+	args := CheckPhaseArgs{}
+	reply := CheckPhaseReply{}
+	call("Coordinator.CheckPhase", &args, &reply)
 	return reply.Phase
 }
 func GetTask() (*Task,int) {

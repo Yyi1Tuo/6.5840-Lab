@@ -6,7 +6,7 @@ import "os"
 import "net/rpc"
 import "net/http"
 import "time"
-import "fmt"
+//import "fmt"
 import "sync"
 
 const (
@@ -14,6 +14,7 @@ const (
 	ReducePhase = 1
 	WaitPhase = 2
 	DeadPhase = 3
+	DonePhase = 4
 	MapTask = 0
 	ReduceTask = 1
 	
@@ -69,7 +70,9 @@ func (c *Coordinator) AllocateTask(args *AllocateTaskArgs, reply *AllocateTaskRe
 	return nil
 }
 
-func (c *Coordinator) CheakPhase(args *CheakPhaseArgs, reply *CheakPhaseReply) error {
+func (c *Coordinator) CheckPhase(args *CheckPhaseArgs, reply *CheckPhaseReply) error {
+	PhaseMu.Lock()
+	defer PhaseMu.Unlock()
 	reply.Phase = c.Phase
 	return nil
 }
@@ -85,7 +88,7 @@ func (c *Coordinator) DoneReport(args *DoneReportArgs, reply *DoneReportReply) e
 	delete(c.TaskMap, args.TaskId)
 	delete(c.HeartbeatMap, args.TaskId)
 	delete(c.Tasks, args.TaskId)
-	fmt.Println("Task",args.TaskId,"done")
+	//fmt.Println("Task",args.TaskId,"done")
 	return nil
 }
 func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
@@ -117,6 +120,9 @@ func (c *Coordinator) server() {
 //
 func (c *Coordinator) Done() bool {
 	ret := false
+	if c.Phase == DonePhase {
+		ret = true
+	}
 	// Your code here.
 	return ret
 }
@@ -162,7 +168,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 				PhaseMu.Lock()
 				defer PhaseMu.Unlock()
 				c.Phase = ReducePhase
-				fmt.Println("Map任务完成 State changed")
+				//fmt.Println("Map任务完成 State changed")
 				break;
 			}
 			time.Sleep(1000 * time.Millisecond)
@@ -173,7 +179,34 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	wg.Wait()
 	//reduce任务
 	MakeReduceTask(&c)
-	
+	//等待reduce任务完成
+	wg.Add(1)
+	go func(){
+		defer wg.Done()
+		for{
+			mu.Lock()
+			flag := 0 //free
+			for _, status := range c.TaskMap {
+				if status == ReducePhase {
+					flag = 1//busy
+					break;
+				}
+			}
+			mu.Unlock()
+			if flag == 0 {
+				PhaseMu.Lock()
+				defer PhaseMu.Unlock()
+				c.Phase = DonePhase
+				//fmt.Println("Reduce任务完成 State changed")
+				break;
+			}
+			time.Sleep(1000 * time.Millisecond)
+		}
+	}()
+	wg.Wait()
+
+	//所有任务完成 
+	//fmt.Println("所有任务完成")
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
@@ -191,7 +224,7 @@ func MakeMapTask(files []string, c *Coordinator) {
 		c.TaskMap[i] = MapPhase
 		c.Tasks[i] = task
 	}
-	fmt.Println("MapTask生成完成")
+	//fmt.Println("MapTask生成完成")
 }
 func MakeReduceTask(c *Coordinator){
 	//生成reduce任务并写入管道
@@ -206,7 +239,7 @@ func MakeReduceTask(c *Coordinator){
 		c.TaskMap[i] = ReducePhase
 		c.Tasks[i] = task
 	}
-	fmt.Println("ReduceTask生成完成")
+	//fmt.Println("ReduceTask生成完成")
 
 }
 
