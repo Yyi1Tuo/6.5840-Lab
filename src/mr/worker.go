@@ -54,6 +54,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			DoReduceTask(taskPtr, reducef,lenfiles)
 		case WaitPhase:
 			time.Sleep(1000 * time.Millisecond)
+		case DonePhase:
+			return
 		}
 		time.Sleep(1000 * time.Millisecond)
 		//fmt.Println("Current Phase : ",phase)
@@ -172,7 +174,7 @@ func DoReduceTask(task *Task, reducef func(string, []string) string,lenfiles int
 	}
 
 	outfile.Close()
-
+	fmt.Println("File created")
 	done <- true
 	DoneReport(task)
 }

@@ -6,7 +6,7 @@ import "os"
 import "net/rpc"
 import "net/http"
 import "time"
-//import "fmt"
+import "fmt"
 import "sync"
 
 const (
@@ -88,7 +88,7 @@ func (c *Coordinator) DoneReport(args *DoneReportArgs, reply *DoneReportReply) e
 	delete(c.TaskMap, args.TaskId)
 	delete(c.HeartbeatMap, args.TaskId)
 	delete(c.Tasks, args.TaskId)
-	//fmt.Println("Task",args.TaskId,"done")
+	fmt.Println("Task",args.TaskId,"done")
 	return nil
 }
 func (c *Coordinator) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
@@ -168,7 +168,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 				PhaseMu.Lock()
 				defer PhaseMu.Unlock()
 				c.Phase = ReducePhase
-				//fmt.Println("Map任务完成 State changed")
+				fmt.Println("Map任务完成 State changed")
 				break;
 			}
 			time.Sleep(1000 * time.Millisecond)
@@ -197,7 +197,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 				PhaseMu.Lock()
 				defer PhaseMu.Unlock()
 				c.Phase = DonePhase
-				//fmt.Println("Reduce任务完成 State changed")
+				fmt.Println("Reduce任务完成 State changed")
 				break;
 			}
 			time.Sleep(1000 * time.Millisecond)
@@ -206,7 +206,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	wg.Wait()
 
 	//所有任务完成 
-	//fmt.Println("所有任务完成")
+	fmt.Println("所有任务完成")
 	return &c
 }
 func MakeMapTask(files []string, c *Coordinator) {
