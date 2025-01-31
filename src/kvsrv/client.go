@@ -8,6 +8,7 @@ import "math/big"
 type Clerk struct {
 	server *labrpc.ClientEnd
 	// You will have to modify this struct.
+	
 }
 
 func nrand() int64 {
