@@ -38,7 +38,11 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
-	return ""
+	//为了实现linearizability，需要实现一个单调递增的序列号，用来唯一确定操作的顺序
+	args:=GetArgs{Key:key,Seq:ck.seq}
+	reply:=GetReply{}
+	ck.server.Call("KVServer.Get",&args,&reply)
+	return reply.Value
 }
 
 // shared by Put and Append.
