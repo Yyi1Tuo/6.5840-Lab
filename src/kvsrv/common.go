@@ -1,5 +1,13 @@
 package kvsrv
 
+type ReportDoneArgs struct {
+	Seq int
+}	
+
+type ReportDoneReply struct {
+	Seq int
+}
+
 // Put or Append
 type PutAppendArgs struct {
 	Key   string
