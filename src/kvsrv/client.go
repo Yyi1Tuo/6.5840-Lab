@@ -3,12 +3,13 @@ package kvsrv
 import "6.5840/labrpc"
 import "crypto/rand"
 import "math/big"
-
+import "sync"
 
 type Clerk struct {
 	server *labrpc.ClientEnd
 	// You will have to modify this struct.
-	seq int
+	seq int//为了实现linearizability，需要实现一个单调递增的序列号，用来唯一确定操作的顺序
+	mu sync.Mutex
 }
 
 func nrand() int64 {
@@ -39,11 +40,21 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
-	//为了实现linearizability，需要实现一个单调递增的序列号，用来唯一确定操作的顺序
+	
+	ck.mu.Lock()
 	ck.seq++
-	args:=GetArgs{Key:key,Seq:ck.seq}
-	reply:=GetReply{}
-	ck.server.Call("KVServer.Get",&args,&reply)
+	privateSeq:=ck.seq//防止重传时拿到了更新过的seq，所以提前把序列保存到本地
+	ck.mu.Unlock()
+
+	for{
+		args:=GetArgs{Key:key,Seq:privateSeq}
+		reply:=GetReply{}
+		ck.server.Call("KVServer.Get",&args,&reply)
+		if reply.Value!=""{
+			break;
+		}//如果reply.Value不为空，说明已经获取到值，直接返回
+		time.Sleep(100*time.Millisecond)//如果reply.Value为空，说明还没有获取到值，等待100ms后重试
+	}
 	return reply.Value
 }
 
@@ -57,17 +68,22 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
 	// You will have to modify this function.
+	ck.mu.Lock()
+	ck.seq++
+	privateSeq:=ck.seq//防止重传时拿到了更新过的seq，所以提前把序列保存到本地
+	ck.mu.Unlock()
+
 	switch op{
 	case "Put":
 		{
-			args:=PutAppendArgs{Key:key,Value:value,Seq:ck.seq}
+			args:=PutAppendArgs{Key:key,Value:value,Seq:privateSeq}
 			reply:=PutAppendReply{}
 			ck.server.Call("KVServer.Put",&args,&reply)
 			return ""
 		}
 	case "Append":
 		{
-			args:=PutAppendArgs{Key:key,Value:value,Seq:ck.seq}
+			args:=PutAppendArgs{Key:key,Value:value,Seq:privateSeq}
 			reply:=PutAppendReply{}
 			ck.server.Call("KVServer.Append",&args,&reply)
 			return reply.Value
