@@ -16,6 +16,8 @@ func nrand() int64 {
 	x := bigx.Int64()
 	return x
 }
+//生成一个随机数，用来作为序列号，存在一定概率的冲突
+//更好的解决方法是在server端生成一个序列号分配给用户
 
 func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
