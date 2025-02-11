@@ -3,15 +3,11 @@ package kvsrv
 import "6.5840/labrpc"
 import "crypto/rand"
 import "math/big"
-import "sync"
 
-//import "fmt"
 
 type Clerk struct {
 	server *labrpc.ClientEnd
 	// You will have to modify this struct.
-	seq int//为了实现linearizability，需要实现一个单调递增的序列号，用来唯一确定操作的顺序
-	mu sync.Mutex
 }
 
 func nrand() int64 {
@@ -24,8 +20,6 @@ func nrand() int64 {
 func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.server = server
-	// You'll have to add code here.
-	ck.seq=0
 	return ck
 }
 
@@ -41,13 +35,8 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
 
-	// You will have to modify this function.
-	//fmt.Println("Trying to Get")
-	//fmt.Println("clerk key is:",key)
-	ck.mu.Lock()
-	ck.seq++
-	privateSeq:=ck.seq//防止重传时拿到了更新过的seq，所以提前把序列保存到本地
-	ck.mu.Unlock()
+	privateSeq:=nrand()
+
     args:=GetArgs{Key:key,Seq:privateSeq}
 	reply:=GetReply{}
 	for !ck.server.Call("KVServer.Get",&args,&reply){}//一直尝试
@@ -67,10 +56,8 @@ func (ck *Clerk) Get(key string) string {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
-	ck.mu.Lock()
-	ck.seq++
-	privateSeq:=ck.seq//防止重传时拿到了更新过的seq，所以提前把序列保存到本地
-	ck.mu.Unlock()
+	
+	privateSeq:=nrand()
 	
 	for {
 		var args PutAppendArgs
