@@ -16,11 +16,12 @@ func nrand() int64 {
 	x := bigx.Int64()
 	return x
 }
+//生成一个随机数，用来作为序列号，存在一定概率的冲突
+//更好的解决方法是在server端生成一个序列号分配给用户
 
 func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.server = server
-	// You'll have to add code here.
 	return ck
 }
 
@@ -36,8 +37,16 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
 
-	// You will have to modify this function.
-	return ""
+	privateSeq:=nrand()
+
+    args:=GetArgs{Key:key,Seq:privateSeq}
+	reply:=GetReply{}
+	for !ck.server.Call("KVServer.Get",&args,&reply){}//一直尝试
+	reportDoneArgs:=ReportDoneArgs{Seq:privateSeq}
+	reportDoneReply:=ReportDoneReply{}
+	for !ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply){}
+	return reply.Value
+	
 }
 
 // shared by Put and Append.
@@ -49,15 +58,38 @@ func (ck *Clerk) Get(key string) string {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
-	// You will have to modify this function.
-	return ""
+	
+	privateSeq:=nrand()
+	
+	for {
+		var args PutAppendArgs
+		var reply PutAppendReply
+		var reportDoneArgs ReportDoneArgs
+		var reportDoneReply ReportDoneReply
+
+		reportDoneArgs = ReportDoneArgs{Seq: privateSeq}
+		args = PutAppendArgs{Key: key, Value: value, Seq: privateSeq}
+		
+		if op == "Put" {
+			for !ck.server.Call("KVServer.Put",&args,&reply){}
+			for !ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply){}
+			return ""
+		} else if op == "Append" {
+			for !ck.server.Call("KVServer.Append",&args,&reply){}
+			for !ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply){}
+			return reply.Value
+		}
+
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
+	//fmt.Println("Trying to put :",key,"with value:",value)
 	ck.PutAppend(key, value, "Put")
 }
 
 // Append value to key's value and return that value
 func (ck *Clerk) Append(key string, value string) string {
+	//fmt.Println("Trying to append",key,"with value:",value)
 	return ck.PutAppend(key, value, "Append")
 }
