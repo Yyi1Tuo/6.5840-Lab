@@ -4,8 +4,8 @@ import "6.5840/labrpc"
 import "crypto/rand"
 import "math/big"
 import "sync"
-import "time"
-import "fmt"
+
+//import "fmt"
 
 type Clerk struct {
 	server *labrpc.ClientEnd
@@ -42,33 +42,19 @@ func MakeClerk(server *labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
-	fmt.Println("Trying to Get")
-
+	//fmt.Println("Trying to Get")
+	//fmt.Println("clerk key is:",key)
 	ck.mu.Lock()
 	ck.seq++
 	privateSeq:=ck.seq//防止重传时拿到了更新过的seq，所以提前把序列保存到本地
 	ck.mu.Unlock()
-
-	for{
-		args:=GetArgs{Key:key,Seq:privateSeq}
-		reply:=GetReply{}
-		ck.server.Call("KVServer.Get",&args,&reply)
-		if reply.Value!=""{
-			//汇报请求完成
-			for{
-				reportDoneArgs:=ReportDoneArgs{Seq:privateSeq}
-				reportDoneReply:=ReportDoneReply{}	
-				ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply)
-				if reportDoneReply.Seq==privateSeq{
-					break;
-				}
-				time.Sleep(100*time.Millisecond)
-			}
-			fmt.Println("Done Get")
-			return reply.Value
-		}//如果reply.Value不为空，说明已经获取到值，直接返回
-		time.Sleep(100*time.Millisecond)//如果reply.Value为空，说明还没有获取到值，等待100ms后重试
-	}
+    args:=GetArgs{Key:key,Seq:privateSeq}
+	reply:=GetReply{}
+	for !ck.server.Call("KVServer.Get",&args,&reply){}//一直尝试
+	reportDoneArgs:=ReportDoneArgs{Seq:privateSeq}
+	reportDoneReply:=ReportDoneReply{}
+	for !ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply){}
+	return reply.Value
 	
 }
 
@@ -81,68 +67,40 @@ func (ck *Clerk) Get(key string) string {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) string {
-	// You will have to modify this function.
 	ck.mu.Lock()
 	ck.seq++
 	privateSeq:=ck.seq//防止重传时拿到了更新过的seq，所以提前把序列保存到本地
 	ck.mu.Unlock()
+	
+	for {
+		var args PutAppendArgs
+		var reply PutAppendReply
+		var reportDoneArgs ReportDoneArgs
+		var reportDoneReply ReportDoneReply
 
-	switch op{
-	case "Put":
-		{
-			for{
-				args:=PutAppendArgs{Key:key,Value:value,Seq:privateSeq}
-				reply:=PutAppendReply{}
-				ck.server.Call("KVServer.Put",&args,&reply)
-				if reply.Value!=""{
-					//汇报请求完成
-					for{
-						reportDoneArgs:=ReportDoneArgs{Seq:privateSeq}
-						reportDoneReply:=ReportDoneReply{}	
-						ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply)
-						if reportDoneReply.Seq==privateSeq{
-							break;
-						}
-						time.Sleep(100*time.Millisecond)
-					}
-					break;
-				}
-				time.Sleep(100*time.Millisecond)
-			}
+		reportDoneArgs = ReportDoneArgs{Seq: privateSeq}
+		args = PutAppendArgs{Key: key, Value: value, Seq: privateSeq}
+		
+		if op == "Put" {
+			for !ck.server.Call("KVServer.Put",&args,&reply){}
+			for !ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply){}
 			return ""
+		} else if op == "Append" {
+			for !ck.server.Call("KVServer.Append",&args,&reply){}
+			for !ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply){}
+			return reply.Value
 		}
-	case "Append":
-		{
-			for{
-				args:=PutAppendArgs{Key:key,Value:value,Seq:privateSeq}
-				reply:=PutAppendReply{}
-				ck.server.Call("KVServer.Append",&args,&reply)
-				if reply.Value!=""{
-					//汇报请求完成
-					for{
-						reportDoneArgs:=ReportDoneArgs{Seq:privateSeq}
-						reportDoneReply:=ReportDoneReply{}	
-						ck.server.Call("KVServer.ReportDone",&reportDoneArgs,&reportDoneReply)
-						if reportDoneReply.Seq==privateSeq{
-							break;
-						}
-						time.Sleep(100*time.Millisecond)
-					}
-					return reply.Value
-				}
-				time.Sleep(100*time.Millisecond)
-			}
-			
-		}
+
 	}
-	return ""
 }
 
 func (ck *Clerk) Put(key string, value string) {
+	//fmt.Println("Trying to put :",key,"with value:",value)
 	ck.PutAppend(key, value, "Put")
 }
 
 // Append value to key's value and return that value
 func (ck *Clerk) Append(key string, value string) string {
+	//fmt.Println("Trying to append",key,"with value:",value)
 	return ck.PutAppend(key, value, "Append")
 }
