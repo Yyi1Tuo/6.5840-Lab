@@ -28,6 +28,11 @@ import (
 	"6.5840/labrpc"
 )
 
+const {
+	leader=2
+	candidate=1
+	follower=0
+}
 
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -72,6 +77,11 @@ type Raft struct {
 	NextIndex []int //下一个日志索引
 	MatchIndex []int //匹配的日志索引
 	
+	//选举状态
+	State int //选举状态
+	ElectionTimer *time.Ticker //选举计时器
+	HeartbeatTimer *time.Ticker //心跳计时器
+	VoteCount int //收到的票数
 }
 
 // return currentTerm and whether this server
@@ -155,6 +165,7 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
+
 }
 
 // AppendEntriesArgs 是 AppendEntries RPC 的参数结构体
@@ -248,10 +259,14 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-
 		// Your code here (3A)
 		// Check if a leader election should be started.
-
+		select {
+		case <-rf.ElectionTimer.C:
+			rf.startElection()
+		case <-rf.HeartbeatTimer.C:
+			rf.broadcastHeartbeat()
+		}
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
@@ -259,6 +274,73 @@ func (rf *Raft) ticker() {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
+
+func (rf *Raft) startElection() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	switch rf.State {
+	case follower:
+		rf.State = candidate
+		fallthrough
+	case candidate:
+		rf.CurrentTerm++
+		rf.VoteFor = rf.me
+		rf.ElectionTimer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.VoteCount = 1
+		rf.RequestVotes()
+	case leader:
+		return
+	}
+}
+
+func (rf *Raft) broadcastHeartbeat() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	
+	if rf.State != leader {
+		return
+	}
+
+	for i := range rf.peers {
+		if i == rf.me {
+			continue
+		}
+		//由于传输的是心跳信号，部分内容可以设置为空
+		args := &AppendEntriesArgs{rf.CurrentTerm, rf.me, }
+		reply := &AppendEntriesReply{}
+		//发送心跳,注意脑裂问题
+		go rf.sendAppendEntries(i, args, reply)
+	}
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	for !rf.peers[server].Call("Raft.AppendEntries", args, reply) {}
+
+	//为防止脑裂，需要判断reply是否合法	
+	if !reply.Success {
+		rf.mu.Lock()
+		rf.state=follower
+		rf.CurrentTerm=reply.Term
+		rf.VoteCount=0
+		rf.ElectionTimer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.mu.Unlock()
+	}
+	return
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term < rf.CurrentTerm {//这里的rf是接受信号的server,如果leader的term更小说明发生脑裂了
+		reply.Term = rf.CurrentTerm
+		reply.Success = false
+	} else {
+
+	}
+}
+
+
+
 
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -277,6 +359,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (3A, 3B, 3C).
+	rf.CurrentTerm = 0
+	rf.VoteFor = -1
+	rf.Logs = []LogEntry{}
+	rf.CommitIndex = 0
+	rf.LastApplied = 0
+	rf.NextIndex = make([]int, len(peers))
+	rf.MatchIndex = make([]int, len(peers))
+	rf.State = follower
+	rf.ElectionTimer = time.NewTicker(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+	rf.HeartbeatTimer = time.NewTicker(100 * time.Millisecond)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
