@@ -61,7 +61,17 @@ type Raft struct {
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-
+	//持久化状态
+	CurrentTerm int //当前任期
+	VoteFor int //投票给谁
+	Logs []LogEntry //日志
+	
+	//易失状态
+	CommitIndex int //已提交的日志索引
+	LastApplied int //已应用的日志索引
+	NextIndex []int //下一个日志索引
+	MatchIndex []int //匹配的日志索引
+	
 }
 
 // return currentTerm and whether this server
@@ -128,12 +138,18 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
+	Term int //候选人任期
+	CandidateId int //候选人ID
+	LastLogIndex int //候选人最后日志索引
+	LastLogTerm int //候选人最后日志任期
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
+	Term int //当前任期
+	VoteGranted bool //是否投票
 }
 
 // example RequestVote RPC handler.
@@ -141,6 +157,20 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 }
 
+// AppendEntriesArgs 是 AppendEntries RPC 的参数结构体
+// 可以将其设置为null来作为heartbeat信号
+type AppendEntriesArgs struct {
+	Term int //当前任期
+	LeaderId int //领导者ID
+	PrevLogIndex int //前一个日志索引
+	PrevLogTerm int //前一个日志任期
+	Entries []LogEntry //日志条目
+	LeaderCommit int
+}
+type AppendEntriesReply struct {
+	Term int
+	Success bool
+}
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
