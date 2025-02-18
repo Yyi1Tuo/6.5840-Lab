@@ -23,7 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	//"fmt"
+	"fmt"
 	//	"6.5840/labgob"
 	"6.5840/labrpc"
 )
@@ -187,19 +187,39 @@ type AppendEntriesReply struct {
 
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	//发送拉票请求
-	for !rf.peers[server].Call("Raft.RequestVote", args, reply) {}
-	
+
+	//这里不能一直call，原因在于产生网络分区时，一直call没有意义
+	if ok:= rf.peers[server].Call("Raft.RequestVote", args, reply);!ok {return false}
+	//由于rpc是阻塞的，所以后面可以直接根据reply判断
+
+	//还要考虑收到重连回来过期的rpc信号
+	if args.Term < rf.CurrentTerm {
+		return false
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	//如果状态被改变，应当忽略收到的票
+	if rf.State != candidate {
+		return false
+	}
+	//如果发现更大的任期，应该立即转为follower
+	if reply.Term > rf.CurrentTerm {
+		rf.State = follower
+		rf.CurrentTerm = reply.Term
+		rf.VoteFor = -1
+		rf.Timer.Reset(rf.getRandomElectionTimeout())
+		return false
+	}
+	//只有任期较大且状态为candidate的server才能认为接受到合法投票
 	if reply.VoteGranted {
-		rf.mu.Lock()
-		//fmt.Println(rf.me," get a Vote from ",server)
 		rf.VoteCount++
-		//fmt.Println(rf.me," VoteCount is ",rf.VoteCount)
+		//fmt.Println(rf.me," VoteCount is ",rf.VoteCount+)
 		//如果收到的票数大于一半，则成为leader
 		if rf.VoteCount > len(rf.peers)/2 {
 			rf.State = leader
 			rf.becomeLeader()
 		}
-		rf.mu.Unlock()
+		
 	}
 	return reply.VoteGranted
 }
@@ -220,14 +240,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.State = follower
 		rf.CurrentTerm = args.Term
 		reply.VoteGranted = true
-		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.Timer.Reset(rf.getRandomElectionTimeout())
 		return
 	}
 	//如果candidate的term等于当前任期，假如没有投过票，则可以投票
 	if args.Term == rf.CurrentTerm && rf.VoteFor == -1{
 		rf.VoteFor = args.CandidateId
 		reply.VoteGranted = true
-		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.Timer.Reset(rf.getRandomElectionTimeout())
 		return
 	}
 	return
@@ -306,7 +326,7 @@ func (rf *Raft) startElection() {
 	case candidate:
 		rf.CurrentTerm++
 		rf.VoteFor = rf.me
-		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.Timer.Reset(rf.getRandomElectionTimeout())
 		rf.VoteCount = 1
 		//开始拉票
 		for i := range rf.peers {
@@ -315,7 +335,9 @@ func (rf *Raft) startElection() {
 			}
 			args := &RequestVoteArgs{Term:rf.CurrentTerm,CandidateId:rf.me,}//LastLogIndex:len(rf.Logs)-1,LastLogTerm:rf.Logs[len(rf.Logs)-1].Term}
 			reply := &RequestVoteReply{}
-			go rf.sendRequestVote(i, args, reply)
+			go func(i int) {
+				rf.sendRequestVote(i, args, reply)
+			}(i)//注意闭包捕获问题
 		}
 	}
 }
@@ -334,20 +356,29 @@ func (rf *Raft) broadcastHeartbeat() {
 		args := &AppendEntriesArgs{Term:rf.CurrentTerm, LeaderId:rf.me,}
 		reply := &AppendEntriesReply{}
 		//发送心跳,注意脑裂问题
-		go rf.sendAppendEntries(i, args, reply)
+		go func(i int) {
+			rf.sendAppendEntries(i, args, reply)
+		}(i)
 	}
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	for !rf.peers[server].Call("Raft.AppendEntries", args, reply) {}
-
+	//这里不能一直call，原因在于产生网络分区时，一直call没有意义
+	if ok:= rf.peers[server].Call("Raft.AppendEntries", args, reply);!ok {return}
+	//还要考虑收到重连回来过期的rpc信号
+	if args.Term < rf.CurrentTerm {
+		return
+	}
 	//为防止脑裂，需要判断reply是否合法	
 	if !reply.Success {
 		rf.mu.Lock()
 		rf.State = follower
-		rf.CurrentTerm = reply.Term
+		//假如存在多个网络分区，那么term应该取最大值
+		if(rf.CurrentTerm<reply.Term){
+			rf.CurrentTerm = reply.Term
+		}
 		rf.VoteCount = 0
-		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.Timer.Reset(rf.getRandomElectionTimeout())
 		rf.mu.Unlock()
 	}
 	return
@@ -364,7 +395,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	} else {
 		rf.CurrentTerm = args.Term
 		rf.VoteCount = 0
-		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.Timer.Reset(rf.getRandomElectionTimeout())
 		reply.Success = true
 	}
 }
@@ -411,20 +442,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 // 获取随机选举超时时间
 func (rf *Raft) getRandomElectionTimeout() time.Duration {
-	return time.Duration(rand.Intn(150) + 250) * time.Millisecond
-}
-
-// 状态转换时的定时器处理
-func (rf *Raft) becomeFollower(term int) {
-	rf.State = follower
-	rf.CurrentTerm = term
-	rf.VoteFor = -1
-	// follower 使用随机的选举超时时间
-	rf.Timer.Reset(rf.getRandomElectionTimeout())
+	return time.Duration(rand.Intn(100) + 300) * time.Millisecond
 }
 
 func (rf *Raft) becomeLeader() {
-	//fmt.Println(rf.me," becomeLeader")
+	fmt.Printf("Server %d becomes leader for term %d\n", rf.me, rf.CurrentTerm)
 	// leader 使用固定的心跳间隔
 	rf.Timer.Reset(100 * time.Millisecond)
 	// 初始化 leader 状态
