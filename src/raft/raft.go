@@ -23,16 +23,16 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
+	"fmt"
 	//	"6.5840/labgob"
 	"6.5840/labrpc"
 )
 
-const {
-	leader=2
-	candidate=1
-	follower=0
-}
+const (
+	leader = 2
+	candidate = 1
+	follower = 0
+)
 
 // as each Raft peer becomes aware that successive log entries are
 // committed, the peer should send an ApplyMsg to the service (or
@@ -55,6 +55,11 @@ type ApplyMsg struct {
 	SnapshotIndex int
 }
 
+type LogEntry struct {
+	Command interface{}
+	CommandIndex int
+	Term int
+}
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
@@ -79,8 +84,7 @@ type Raft struct {
 	
 	//选举状态
 	State int //选举状态
-	ElectionTimer *time.Ticker //选举计时器
-	HeartbeatTimer *time.Ticker //心跳计时器
+	Timer *time.Timer //选举&心跳计时器
 	VoteCount int //收到的票数
 }
 
@@ -91,6 +95,10 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (3A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term = rf.CurrentTerm
+	isleader = rf.State == leader
 	return term, isleader
 }
 
@@ -162,12 +170,6 @@ type RequestVoteReply struct {
 	VoteGranted bool //是否投票
 }
 
-// example RequestVote RPC handler.
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (3A, 3B).
-
-}
-
 // AppendEntriesArgs 是 AppendEntries RPC 的参数结构体
 // 可以将其设置为null来作为heartbeat信号
 type AppendEntriesArgs struct {
@@ -182,38 +184,55 @@ type AppendEntriesReply struct {
 	Term int
 	Success bool
 }
-// example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
-}
 
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	//发送拉票请求
+	for !rf.peers[server].Call("Raft.RequestVote", args, reply) {}
+	
+	if reply.VoteGranted {
+		rf.mu.Lock()
+		fmt.Println(rf.me," get a Vote from ",server)
+		rf.VoteCount++
+		//如果收到的票数大于一半，则成为leader
+		if rf.VoteCount > len(rf.peers)/2 {
+			rf.State = leader
+			rf.becomeLeader()
+		}
+		rf.mu.Unlock()
+	}
+	return reply.VoteGranted
+}
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	//接受拉票请求，这里的rf就是接受请求的server
+	fmt.Println(rf.me," RequestVote from ",args.CandidateId)
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	fmt.Println(rf.me," RequestVote from ",args.CandidateId)
+	reply.Term = rf.CurrentTerm
+	reply.VoteGranted = false
+	//如果请求的term小于当前任期，则不投票
+	if args.Term < rf.CurrentTerm {
+		return
+	} 
+	//如果candidate的term更大，可以投票
+	if args.Term > rf.CurrentTerm{
+		rf.VoteFor = args.CandidateId
+		rf.State = follower
+		rf.CurrentTerm = args.Term
+		reply.VoteGranted = true
+		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		return
+	}
+	//如果candidate的term等于当前任期，假如没有投过票，则可以投票
+	if args.Term == rf.CurrentTerm && rf.VoteFor == -1{
+		rf.VoteFor = args.CandidateId
+		reply.VoteGranted = true
+		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		return
+	}
+	return
+
+}
 
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
@@ -233,8 +252,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (3B).
-
-
 	return index, term, isLeader
 }
 
@@ -259,25 +276,29 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
-		// Your code here (3A)
-		// Check if a leader election should be started.
 		select {
-		case <-rf.ElectionTimer.C:
-			rf.startElection()
-		case <-rf.HeartbeatTimer.C:
-			rf.broadcastHeartbeat()
+		case <-rf.Timer.C:
+			rf.mu.Lock()
+			switch rf.State {
+			case follower, candidate:
+				// 作为 follower 或 candidate 超时后开始选举
+				rf.startElection()
+			case leader:
+				// 作为 leader 发送心跳
+				rf.broadcastHeartbeat()
+				// leader 重置定时器为较短的心跳间隔
+				rf.Timer.Reset(100 * time.Millisecond)
+			}
+			rf.mu.Unlock()
 		}
-
-		// pause for a random amount of time between 50 and 350
-		// milliseconds.
-		ms := 50 + (rand.Int63() % 300)
-		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
 
 func (rf *Raft) startElection() {
+	fmt.Println(rf.me," startElection")
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	//fmt.Println(rf.me," startElection")
 	switch rf.State {
 	case follower:
 		rf.State = candidate
@@ -285,18 +306,25 @@ func (rf *Raft) startElection() {
 	case candidate:
 		rf.CurrentTerm++
 		rf.VoteFor = rf.me
-		rf.ElectionTimer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
 		rf.VoteCount = 1
-		rf.RequestVotes()
-	case leader:
-		return
+		//开始拉票
+		fmt.Println(rf.me," Trying to get vote from other servers")
+		for i := range rf.peers {
+			if i == rf.me {
+				continue
+			}
+			args := &RequestVoteArgs{rf.CurrentTerm, rf.me, len(rf.Logs)-1, rf.Logs[len(rf.Logs)-1].Term}
+			reply := &RequestVoteReply{}
+			go rf.sendRequestVote(i, args, reply)
+		}
 	}
 }
 
 func (rf *Raft) broadcastHeartbeat() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	
+	fmt.Println(rf.me," broadcastHeartbeat")
 	if rf.State != leader {
 		return
 	}
@@ -306,7 +334,7 @@ func (rf *Raft) broadcastHeartbeat() {
 			continue
 		}
 		//由于传输的是心跳信号，部分内容可以设置为空
-		args := &AppendEntriesArgs{rf.CurrentTerm, rf.me, }
+		args := &AppendEntriesArgs{Term:rf.CurrentTerm, LeaderId:rf.me,}
 		reply := &AppendEntriesReply{}
 		//发送心跳,注意脑裂问题
 		go rf.sendAppendEntries(i, args, reply)
@@ -319,10 +347,10 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	//为防止脑裂，需要判断reply是否合法	
 	if !reply.Success {
 		rf.mu.Lock()
-		rf.state=follower
-		rf.CurrentTerm=reply.Term
-		rf.VoteCount=0
-		rf.ElectionTimer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		rf.State = follower
+		rf.CurrentTerm = reply.Term
+		rf.VoteCount = 0
+		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
 		rf.mu.Unlock()
 	}
 	return
@@ -335,7 +363,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Term = rf.CurrentTerm
 		reply.Success = false
 	} else {
-
+		rf.CurrentTerm = args.Term
+		rf.VoteCount = 0
+		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
+		reply.Success = true
 	}
 }
 
@@ -367,8 +398,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.NextIndex = make([]int, len(peers))
 	rf.MatchIndex = make([]int, len(peers))
 	rf.State = follower
-	rf.ElectionTimer = time.NewTicker(time.Duration(rand.Intn(150)+250) * time.Millisecond)
-	rf.HeartbeatTimer = time.NewTicker(100 * time.Millisecond)
+	rf.Timer = time.NewTimer(rf.getRandomElectionTimeout())
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -378,4 +408,30 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 
 	return rf
+}
+
+// 获取随机选举超时时间
+func (rf *Raft) getRandomElectionTimeout() time.Duration {
+	return time.Duration(rand.Intn(150) + 250) * time.Millisecond
+}
+
+// 状态转换时的定时器处理
+func (rf *Raft) becomeFollower(term int) {
+	rf.State = follower
+	rf.CurrentTerm = term
+	rf.VoteFor = -1
+	// follower 使用随机的选举超时时间
+	rf.Timer.Reset(rf.getRandomElectionTimeout())
+}
+
+func (rf *Raft) becomeLeader() {
+	// leader 使用固定的心跳间隔
+	rf.Timer.Reset(100 * time.Millisecond)
+	// 初始化 leader 状态
+	for i := range rf.peers {
+		rf.NextIndex[i] = len(rf.Logs)
+		rf.MatchIndex[i] = 0
+	}
+	// 立即发送第一次心跳
+	rf.broadcastHeartbeat()
 }
