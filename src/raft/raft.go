@@ -23,7 +23,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"fmt"
+	//"fmt"
 	//	"6.5840/labgob"
 	"6.5840/labrpc"
 )
@@ -191,8 +191,9 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	
 	if reply.VoteGranted {
 		rf.mu.Lock()
-		fmt.Println(rf.me," get a Vote from ",server)
+		//fmt.Println(rf.me," get a Vote from ",server)
 		rf.VoteCount++
+		//fmt.Println(rf.me," VoteCount is ",rf.VoteCount)
 		//如果收到的票数大于一半，则成为leader
 		if rf.VoteCount > len(rf.peers)/2 {
 			rf.State = leader
@@ -204,10 +205,9 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//接受拉票请求，这里的rf就是接受请求的server
-	fmt.Println(rf.me," RequestVote from ",args.CandidateId)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	fmt.Println(rf.me," RequestVote from ",args.CandidateId)
+	//fmt.Println(rf.me," RequestVote from ",args.CandidateId)
 	reply.Term = rf.CurrentTerm
 	reply.VoteGranted = false
 	//如果请求的term小于当前任期，则不投票
@@ -295,9 +295,9 @@ func (rf *Raft) ticker() {
 }
 
 func (rf *Raft) startElection() {
-	fmt.Println(rf.me," startElection")
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	//fmt.Println(rf.me," startElection")
+	//rf.mu.Lock()
+	//defer rf.mu.Unlock()
 	//fmt.Println(rf.me," startElection")
 	switch rf.State {
 	case follower:
@@ -309,12 +309,11 @@ func (rf *Raft) startElection() {
 		rf.Timer.Reset(time.Duration(rand.Intn(150)+250) * time.Millisecond)
 		rf.VoteCount = 1
 		//开始拉票
-		fmt.Println(rf.me," Trying to get vote from other servers")
 		for i := range rf.peers {
 			if i == rf.me {
 				continue
 			}
-			args := &RequestVoteArgs{rf.CurrentTerm, rf.me, len(rf.Logs)-1, rf.Logs[len(rf.Logs)-1].Term}
+			args := &RequestVoteArgs{Term:rf.CurrentTerm,CandidateId:rf.me,}//LastLogIndex:len(rf.Logs)-1,LastLogTerm:rf.Logs[len(rf.Logs)-1].Term}
 			reply := &RequestVoteReply{}
 			go rf.sendRequestVote(i, args, reply)
 		}
@@ -322,9 +321,7 @@ func (rf *Raft) startElection() {
 }
 
 func (rf *Raft) broadcastHeartbeat() {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	fmt.Println(rf.me," broadcastHeartbeat")
+	//fmt.Println(rf.me," broadcastHeartbeat")
 	if rf.State != leader {
 		return
 	}
@@ -357,8 +354,10 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	//接受到心跳信号
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	//fmt.Println(rf.me," receive heartbeat from ",args.LeaderId)
 	if args.Term < rf.CurrentTerm {//这里的rf是接受信号的server,如果leader的term更小说明发生脑裂了
 		reply.Term = rf.CurrentTerm
 		reply.Success = false
@@ -425,6 +424,7 @@ func (rf *Raft) becomeFollower(term int) {
 }
 
 func (rf *Raft) becomeLeader() {
+	//fmt.Println(rf.me," becomeLeader")
 	// leader 使用固定的心跳间隔
 	rf.Timer.Reset(100 * time.Millisecond)
 	// 初始化 leader 状态
