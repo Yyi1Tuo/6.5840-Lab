@@ -23,7 +23,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"fmt"
 	//	"6.5840/labgob"
 	"6.5840/labrpc"
 )
@@ -191,13 +190,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	//这里不能一直call，原因在于产生网络分区时，一直call没有意义
 	if ok:= rf.peers[server].Call("Raft.RequestVote", args, reply);!ok {return false}
 	//由于rpc是阻塞的，所以后面可以直接根据reply判断
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	//还要考虑收到重连回来过期的rpc信号
 	if args.Term < rf.CurrentTerm {
 		return false
 	}
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	//如果状态被改变，应当忽略收到的票
 	if rf.State != candidate {
 		return false
@@ -227,7 +225,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//接受拉票请求，这里的rf就是接受请求的server
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	//fmt.Println(rf.me," RequestVote from ",args.CandidateId)
+	
+	DPrintf("Server %d (term %d, state %v): Received vote request from %d for term %d",
+			rf.me, rf.CurrentTerm, rf.State, args.CandidateId, args.Term)
+	
 	reply.Term = rf.CurrentTerm
 	reply.VoteGranted = false
 	//如果请求的term小于当前任期，则不投票
@@ -248,10 +249,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.VoteFor = args.CandidateId
 		reply.VoteGranted = true
 		rf.Timer.Reset(rf.getRandomElectionTimeout())
-		return
+		rf.State = follower
+		
+		DPrintf("Server %d: granted vote to %d in term %d", 
+				rf.me, args.CandidateId, args.Term)
 	}
-	return
-
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -302,28 +304,30 @@ func (rf *Raft) ticker() {
 			switch rf.State {
 			case follower, candidate:
 				// 作为 follower 或 candidate 超时后开始选举
+				rf.mu.Unlock()
 				rf.startElection()
 			case leader:
 				// 作为 leader 发送心跳
+				rf.mu.Unlock()
 				rf.broadcastHeartbeat()
 				// leader 重置定时器为较短的心跳间隔
 				rf.Timer.Reset(100 * time.Millisecond)
 			}
-			rf.mu.Unlock()
+			
 		}
 	}
 }
 
 func (rf *Raft) startElection() {
-	//fmt.Println(rf.me," startElection")
-	//rf.mu.Lock()
-	//defer rf.mu.Unlock()
-	//fmt.Println(rf.me," startElection")
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	switch rf.State {
 	case follower:
 		rf.State = candidate
 		fallthrough
 	case candidate:
+		DPrintf("Server %d: state changed to candidate in term %d", 
+				rf.me, rf.CurrentTerm)
 		rf.CurrentTerm++
 		rf.VoteFor = rf.me
 		rf.Timer.Reset(rf.getRandomElectionTimeout())
@@ -344,6 +348,8 @@ func (rf *Raft) startElection() {
 
 func (rf *Raft) broadcastHeartbeat() {
 	//fmt.Println(rf.me," broadcastHeartbeat")
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if rf.State != leader {
 		return
 	}
@@ -366,12 +372,13 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	//这里不能一直call，原因在于产生网络分区时，一直call没有意义
 	if ok:= rf.peers[server].Call("Raft.AppendEntries", args, reply);!ok {return}
 	//还要考虑收到重连回来过期的rpc信号
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	if args.Term < rf.CurrentTerm {
 		return
 	}
 	//为防止脑裂，需要判断reply是否合法	
 	if !reply.Success {
-		rf.mu.Lock()
 		rf.State = follower
 		//假如存在多个网络分区，那么term应该取最大值
 		if(rf.CurrentTerm<reply.Term){
@@ -379,7 +386,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		}
 		rf.VoteCount = 0
 		rf.Timer.Reset(rf.getRandomElectionTimeout())
-		rf.mu.Unlock()
 	}
 	return
 }
@@ -388,11 +394,19 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//接受到心跳信号
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	//fmt.Println(rf.me," receive heartbeat from ",args.LeaderId)
-	if args.Term < rf.CurrentTerm {//这里的rf是接受信号的server,如果leader的term更小说明发生脑裂了
-		reply.Term = rf.CurrentTerm
+	
+	DPrintf("Server %d (term %d, state %v): Received heartbeat from %d for term %d",
+			rf.me, rf.CurrentTerm, rf.State, args.LeaderId, args.Term)
+	
+	if args.Term < rf.CurrentTerm {
 		reply.Success = false
-	} else {
+		reply.Term = rf.CurrentTerm
+		return
+	}
+	
+	// 如果收到更高任期的心跳，立即转为 follower（重要，防止脑裂）
+	if args.Term >= rf.CurrentTerm {
+		rf.State = follower
 		rf.CurrentTerm = args.Term
 		rf.VoteCount = 0
 		rf.Timer.Reset(rf.getRandomElectionTimeout())
@@ -446,7 +460,7 @@ func (rf *Raft) getRandomElectionTimeout() time.Duration {
 }
 
 func (rf *Raft) becomeLeader() {
-	fmt.Printf("Server %d becomes leader for term %d\n", rf.me, rf.CurrentTerm)
+	DPrintf("Server %d becomes leader for term %d\n", rf.me, rf.CurrentTerm)
 	// leader 使用固定的心跳间隔
 	rf.Timer.Reset(100 * time.Millisecond)
 	// 初始化 leader 状态
@@ -454,6 +468,7 @@ func (rf *Raft) becomeLeader() {
 		rf.NextIndex[i] = len(rf.Logs)
 		rf.MatchIndex[i] = 0
 	}
-	// 立即发送第一次心跳
-	rf.broadcastHeartbeat()
+	
+	// 立即发送心跳
+	go rf.broadcastHeartbeat()
 }
